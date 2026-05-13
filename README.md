@@ -1,36 +1,91 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Henosis
 
-## Getting Started
+A premium AI website builder. Describe what you want — Henosis ships a complete, production-ready site in under a minute. Iterate in chat. Preview live. Export, deploy.
 
-First, run the development server:
+Built with **Next.js 16** (App Router), **TypeScript**, **Tailwind v4**, and **OpenRouter** (Claude / GPT-4o / Gemini) with prompt caching for ~90% input token savings on repeated generations.
+
+## Features
+
+- **Prompt to site**: one prompt → full HTML/CSS/JS site, rendered live in a sandboxed iframe.
+- **VS Code-style editor** at `/generate`: top menu bar, left AI chat panel, file tree, code viewer, and a Preview/Code toggle. Iterate by chatting with the AI.
+- **Three pricing tiers** (Bronze / Silver / Gold) with metal-specific glow animations that intensify on hover.
+- **Streaming generation** via Server-Sent Events from `/api/generate` so the UI shows progress as the model writes.
+- **Premium minimalist UI** — black + matte white + soft sage-green accent. Animated, glowing hero headline. Custom logo, no off-the-shelf components.
+- **Persistent state** via `zustand` + `localStorage`: projects, draft prompt and the (mock) user session survive reloads.
+- **No backend required** for the MVP: auth is local, projects are local. Swap in real auth / a database later by replacing the relevant store actions and adding a project DB.
+
+## Pages
+
+- `/` — landing (navbar, hero, prompt box, examples grid, feature strip, final CTA, footer).
+- `/auth` — sign in / sign up (Google + email, mocked).
+- `/projects` — your generated sites.
+- `/profile` — current plan, usage, project counts.
+- `/pricing` — Bronze / Silver / Gold animated tier cards.
+- `/generate?id=...` — the workshop: chat ↔ preview ↔ code ↔ files.
+
+## Getting started
 
 ```bash
+npm install
+cp .env.example .env.local
+# add OPENROUTER_API_KEY to .env.local
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open http://localhost:3000.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Environment variables
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+`OPENROUTER_API_KEY` — required. Get one from <https://openrouter.ai/keys>.
 
-## Learn More
+The system prompt that constrains every generation lives in
+[`src/lib/system-prompt.ts`](src/lib/system-prompt.ts). The OpenRouter call in
+[`src/lib/generate.ts`](src/lib/generate.ts) passes the prompt with
+`cache_control: { type: "ephemeral" }` so Anthropic / OpenRouter caches it and
+subsequent generations are dramatically cheaper.
 
-To learn more about Next.js, take a look at the following resources:
+## Scripts
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+npm run dev      # next dev (turbopack by default in Next 16)
+npm run build    # next build
+npm run start    # next start
+npm run lint     # eslint
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Project layout
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```
+src/
+  app/
+    api/generate/route.ts   # streaming endpoint
+    auth/page.tsx           # sign in / up
+    generate/page.tsx       # the workshop
+    pricing/page.tsx        # tier cards (bronze / silver / gold)
+    profile/page.tsx
+    projects/page.tsx
+    page.tsx                # landing
+    layout.tsx
+    globals.css             # design tokens + animations
+  components/
+    generate/
+      chat-panel.tsx
+      code-viewer.tsx
+      file-tree.tsx
+      menu-bar.tsx
+      preview-pane.tsx
+    examples-grid.tsx
+    footer.tsx
+    hero.tsx
+    logo.tsx
+    model-selector.tsx
+    navbar.tsx
+    prompt-box.tsx
+  lib/
+    examples.ts             # example prompts + model list
+    generate.ts             # OpenRouter client (streaming + non-streaming)
+    store.ts                # zustand stores (user, projects, draft)
+    system-prompt.ts        # hard rules baked into every generation
+    types.ts
+    utils.ts
+```

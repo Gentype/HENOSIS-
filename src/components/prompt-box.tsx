@@ -1,0 +1,180 @@
+"use client";
+
+import { useRouter } from "next/navigation";
+import { useState, useRef, useEffect } from "react";
+import { ArrowUp, Sparkles, Loader2 } from "lucide-react";
+import { ModelSelector } from "./model-selector";
+import { useDraft, useProjects, useUser } from "@/lib/store";
+import { cn } from "@/lib/utils";
+
+interface PromptBoxProps {
+  large?: boolean;
+  initialPrompt?: string;
+  /** When provided, submits as a follow-up message to an existing project instead of creating a new one. */
+  onSubmitFollowUp?: (prompt: string) => Promise<void> | void;
+  placeholder?: string;
+  autoFocus?: boolean;
+}
+
+const PLACEHOLDER =
+  "Describe the website you want. Be specific — sections, brand, vibe, content…";
+
+export function PromptBox({
+  large = true,
+  initialPrompt,
+  onSubmitFollowUp,
+  placeholder = PLACEHOLDER,
+  autoFocus = false,
+}: PromptBoxProps) {
+  const router = useRouter();
+  const draftPrompt = useDraft((s) => s.prompt);
+  const draftModel = useDraft((s) => s.model);
+  const setDraftPrompt = useDraft((s) => s.setPrompt);
+  const setDraftModel = useDraft((s) => s.setModel);
+  const upsertProject = useProjects((s) => s.upsert);
+  const setCurrentProject = useProjects((s) => s.setCurrent);
+  const user = useUser((s) => s.user);
+
+  const [value, setValue] = useState(initialPrompt ?? draftPrompt ?? "");
+  const [submitting, setSubmitting] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Auto-resize textarea
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 320)}px`;
+  }, [value]);
+
+  useEffect(() => {
+    if (autoFocus && textareaRef.current) textareaRef.current.focus();
+  }, [autoFocus]);
+
+  async function submit() {
+    const prompt = value.trim();
+    if (prompt.length < 5 || submitting) return;
+    setSubmitting(true);
+    setDraftPrompt(prompt);
+
+    if (onSubmitFollowUp) {
+      try {
+        await onSubmitFollowUp(prompt);
+        setValue("");
+      } finally {
+        setSubmitting(false);
+      }
+      return;
+    }
+
+    const id = `p_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+    upsertProject({
+      id,
+      prompt,
+      model: draftModel,
+      status: "generating",
+      title: shortTitle(prompt),
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      result: null,
+      history: [
+        {
+          id: `m_${Date.now()}`,
+          role: "user",
+          content: prompt,
+          createdAt: Date.now(),
+          status: "done",
+        },
+      ],
+    });
+    setCurrentProject(id);
+
+    // navigate; the /generate page picks up the project from the store and
+    // automatically kicks off the streaming request.
+    router.push(`/generate?id=${encodeURIComponent(id)}&autostart=1`);
+  }
+
+  function shortTitle(s: string): string {
+    const t = s.trim().split(/\s+/).slice(0, 6).join(" ");
+    return t.length > 60 ? t.slice(0, 60) + "…" : t;
+  }
+
+  function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+      e.preventDefault();
+      submit();
+    } else if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      submit();
+    }
+  }
+
+  return (
+    <div
+      className={cn(
+        "relative w-full mx-auto rounded-3xl border border-border bg-surface/80 backdrop-blur-md",
+        "transition-all focus-within:border-accent/50 focus-within:shadow-[0_0_0_4px_rgba(184,227,201,0.08),0_30px_80px_-30px_rgba(184,227,201,0.35)]",
+        large ? "max-w-3xl p-4 sm:p-5" : "max-w-2xl p-3",
+      )}
+    >
+      <textarea
+        ref={textareaRef}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={onKeyDown}
+        placeholder={placeholder}
+        rows={3}
+        className={cn(
+          "w-full bg-transparent resize-none outline-none placeholder:text-subtle text-foreground",
+          large ? "text-lg leading-relaxed min-h-[120px]" : "text-base leading-relaxed min-h-[80px]",
+        )}
+        disabled={submitting}
+      />
+
+      <div className="mt-3 flex items-center gap-2 flex-wrap">
+        <ModelSelector value={draftModel} onChange={setDraftModel} compact={!large} />
+
+        <div className="hidden sm:flex items-center gap-1.5 text-xs text-subtle px-2.5 py-1">
+          <kbd className="rounded border border-border bg-elevated px-1.5 py-0.5 font-mono text-[10px]">
+            ⌘
+          </kbd>
+          <kbd className="rounded border border-border bg-elevated px-1.5 py-0.5 font-mono text-[10px]">
+            Enter
+          </kbd>
+          <span>to generate</span>
+        </div>
+
+        <div className="ml-auto flex items-center gap-2">
+          {user && (
+            <span className="text-xs text-subtle hidden sm:inline">
+              {user.generationsUsed}/{user.plan === "ultra" ? "∞" : user.plan === "pro" ? 50 : 3} used
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={submit}
+            disabled={value.trim().length < 5 || submitting}
+            className={cn(
+              "btn-generate inline-flex items-center gap-2 rounded-full font-semibold",
+              large ? "px-6 py-3 text-base" : "px-5 py-2.5 text-sm",
+              "disabled:opacity-40 disabled:cursor-not-allowed",
+            )}
+          >
+            {submitting ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>Starting…</span>
+              </>
+            ) : (
+              <>
+                <Sparkles className="w-4 h-4" />
+                <span>Generate</span>
+                <ArrowUp className="w-4 h-4" />
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
