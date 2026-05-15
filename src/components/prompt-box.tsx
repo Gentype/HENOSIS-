@@ -40,6 +40,13 @@ export function PromptBox({
   const [improving, setImproving] = useState(false);
   const [shake, setShake] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // keep store and local input mirrored: any keystroke persists to the draft
+  // store so the value survives across remounts (HMR / route prefetch).
+  function handleChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
+    const next = e.target.value;
+    setValue(next);
+    if (!onSubmitFollowUp) setDraftPrompt(next);
+  }
   // sync local value with the draft store so clicking an example card (which
   // calls setDraftPrompt) actually populates the textarea.
   useEffect(() => {
@@ -175,7 +182,7 @@ export function PromptBox({
       <textarea
         ref={textareaRef}
         value={value}
-        onChange={(e) => setValue(e.target.value)}
+        onChange={handleChange}
         onKeyDown={onKeyDown}
         placeholder={placeholder}
         rows={3}
