@@ -23,7 +23,7 @@ export const useDraft = create<DraftState>()(
       reset: () => set({ prompt: "", model: DEFAULT_MODEL }),
     }),
     {
-      name: "henosis:draft",
+      name: "henosis:draft:v2",
       storage: createJSONStorage(() => localStorage),
     },
   ),

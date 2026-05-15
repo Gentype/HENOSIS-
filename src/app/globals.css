@@ -55,6 +55,19 @@ body {
   font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  /* kill 300ms tap delay on iOS / Android, let pinch-zoom still work */
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+}
+
+/* Make every actionable element feel tappable on mobile (iOS Safari is
+   stricter — it only fires click on elements that look interactive). */
+button,
+a,
+[role="button"] {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
 
 ::selection {
@@ -75,6 +88,165 @@ body {
   background:
     radial-gradient(700px circle at 50% -10%, rgba(184, 227, 201, 0.18), transparent 60%),
     radial-gradient(500px circle at 90% 110%, rgba(184, 227, 201, 0.08), transparent 60%);
+}
+
+/* ───────────────────────────────────────────────────────────────
+   Henosis "flow" backdrop — matches the user's reference:
+     - THICK vertical bars (~8 across viewport) with soft, glowy edges
+     - matte sage-green tint (replaces the chrome/silver of the ref)
+     - horizontal "breath" lighting: bright top → dim → bright middle
+       → dim → bright bottom (creates the "X" / hourglass pulse)
+     - center column gets an extra ellipse of warmth
+     - whole thing slowly drifts sideways (flow effect)
+     - dust/grain overlay floats independently
+     - on mobile: amplitude & opacity dimmed so it doesn't tire the eyes
+   ─────────────────────────────────────────────────────────────── */
+.bg-flow-stripes {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 0;
+  --bar-amp: 1;
+  /* bar pitch — one full period (bar + gap). ~6-8 bars across at 1280px. */
+  --bar-pitch: 168px;
+  /* fades the whole thing into the prompt-box area below */
+  -webkit-mask-image: linear-gradient(
+    180deg,
+    black 0%,
+    black 60%,
+    rgba(0, 0, 0, 0.6) 80%,
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    180deg,
+    black 0%,
+    black 60%,
+    rgba(0, 0, 0, 0.6) 80%,
+    transparent 100%
+  );
+}
+
+/* primary thick bars layer */
+.bg-flow-stripes::before {
+  content: "";
+  position: absolute;
+  inset: -4% -10%;
+  background-image:
+    /* one tall thick bar with soft glow edges, tiled horizontally */
+    repeating-linear-gradient(
+      90deg,
+      transparent 0,
+      transparent calc(var(--bar-pitch) * 0.10),
+      rgba(184, 227, 201, calc(0.10 * var(--bar-amp))) calc(var(--bar-pitch) * 0.18),
+      rgba(184, 227, 201, calc(0.34 * var(--bar-amp))) calc(var(--bar-pitch) * 0.32),
+      rgba(184, 227, 201, calc(0.34 * var(--bar-amp))) calc(var(--bar-pitch) * 0.42),
+      rgba(184, 227, 201, calc(0.10 * var(--bar-amp))) calc(var(--bar-pitch) * 0.56),
+      transparent calc(var(--bar-pitch) * 0.64),
+      transparent 100%
+    );
+  background-size: var(--bar-pitch) 100%;
+  /* horizontal "breath" — bright top, dim middle, bright middle band, dim, bright bottom */
+  -webkit-mask-image: linear-gradient(
+    180deg,
+    rgba(0, 0, 0, 0.9) 0%,
+    rgba(0, 0, 0, 0.45) 22%,
+    rgba(0, 0, 0, 0.95) 48%,
+    rgba(0, 0, 0, 0.45) 74%,
+    rgba(0, 0, 0, 0.9) 100%
+  );
+  mask-image: linear-gradient(
+    180deg,
+    rgba(0, 0, 0, 0.9) 0%,
+    rgba(0, 0, 0, 0.45) 22%,
+    rgba(0, 0, 0, 0.95) 48%,
+    rgba(0, 0, 0, 0.45) 74%,
+    rgba(0, 0, 0, 0.9) 100%
+  );
+  filter: blur(0.6px);
+  animation: flow-drift 28s linear infinite;
+  will-change: transform;
+}
+
+/* central column glow — concentrates light/colour in the middle */
+.bg-flow-stripes::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(
+      ellipse 28% 70% at 50% 50%,
+      rgba(184, 227, 201, calc(0.16 * var(--bar-amp))) 0%,
+      transparent 70%
+    ),
+    radial-gradient(
+      ellipse 60% 30% at 50% 50%,
+      rgba(109, 217, 158, calc(0.08 * var(--bar-amp))) 0%,
+      transparent 80%
+    );
+  mix-blend-mode: screen;
+}
+
+@keyframes flow-drift {
+  from { transform: translateX(0); }
+  to   { transform: translateX(calc(-1 * var(--bar-pitch))); }
+}
+
+/* dust/particles overlay — soft sage flecks drifting */
+.bg-flow-dust {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 1;
+  background-image:
+    radial-gradient(rgba(184, 227, 201, 0.55) 0.7px, transparent 1.4px),
+    radial-gradient(rgba(184, 227, 201, 0.35) 0.5px, transparent 1px),
+    radial-gradient(rgba(109, 217, 158, 0.35) 0.4px, transparent 1px);
+  background-size: 110px 110px, 70px 70px, 160px 160px;
+  background-position: 0 0, 30px 50px, 60px 20px;
+  opacity: 0.42;
+  -webkit-mask-image: linear-gradient(
+    180deg,
+    black 0%,
+    rgba(0, 0, 0, 0.6) 65%,
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    180deg,
+    black 0%,
+    rgba(0, 0, 0, 0.6) 65%,
+    transparent 100%
+  );
+  animation: dust-float 32s linear infinite;
+  will-change: background-position;
+}
+@keyframes dust-float {
+  0% {
+    background-position: 0 0, 30px 50px, 60px 20px;
+  }
+  100% {
+    background-position: 110px -110px, 100px -20px, 160px -140px;
+  }
+}
+
+/* Mobile: dim the flow so it doesn't fight the content */
+@media (max-width: 640px) {
+  .bg-flow-stripes {
+    --bar-amp: 0.6;
+    --bar-pitch: 96px;
+  }
+  .bg-flow-dust {
+    opacity: 0.28;
+  }
+}
+
+/* Reduced motion: stop the drift */
+@media (prefers-reduced-motion: reduce) {
+  .bg-flow-stripes::before,
+  .bg-flow-dust {
+    animation: none;
+  }
 }
 
 /* ───────────────────────────────────────────────────────────────
@@ -305,6 +477,38 @@ body {
   animation: loading-bar 1.6s ease-in-out infinite;
 }
 
+/* Chat streaming animations — the assistant avatar gently pulses + the file
+   chip we just emitted gets a soft glow + the caret blinks while writing. */
+@keyframes chat-avatar-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(184, 227, 201, 0.45);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(184, 227, 201, 0);
+  }
+}
+.chat-avatar-pulse {
+  animation: chat-avatar-pulse 1.6s ease-out infinite;
+}
+@keyframes chip-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(184, 227, 201, 0.25);
+  }
+  50% {
+    box-shadow: 0 0 0 3px rgba(184, 227, 201, 0.06);
+  }
+}
+.chip-pulse {
+  animation: chip-pulse 1.4s ease-in-out infinite;
+}
+@keyframes caret-blink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+.caret-blink {
+  animation: caret-blink 0.9s steps(2, end) infinite;
+}
+
 /* subtle glow ring used around chat panel during generation */
 @keyframes ring-pulse {
   0%,
@@ -317,6 +521,30 @@ body {
 }
 .ring-glow {
   animation: ring-pulse 2.5s ease-in-out infinite;
+}
+
+/* shake animation on prompt-box when user submits empty prompt */
+@keyframes shake-x {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  15%,
+  45%,
+  75% {
+    transform: translateX(-8px);
+  }
+  30%,
+  60%,
+  90% {
+    transform: translateX(8px);
+  }
+}
+.shake-input {
+  animation: shake-x 0.48s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+  border-color: rgba(255, 122, 122, 0.55) !important;
+  box-shadow: 0 0 0 4px rgba(255, 122, 122, 0.08),
+    0 22px 60px -10px rgba(255, 122, 122, 0.25) !important;
 }
 
 /* nice scrollbars */

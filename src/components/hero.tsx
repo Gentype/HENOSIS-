@@ -4,12 +4,15 @@ import { PromptBox } from "./prompt-box";
 
 export function Hero() {
   return (
-    <section className="relative">
-      {/* Ambient backgrounds */}
+    <section className="relative overflow-hidden">
+      {/* Ambient backgrounds: matte-sage vertical flow stripes (top & bottom mirror)
+          + drifting dust particles + the existing soft radial spot/grid. */}
+      <div className="bg-flow-stripes" aria-hidden />
+      <div className="bg-flow-dust" aria-hidden />
       <div className="absolute inset-0 bg-radial-spot pointer-events-none" />
       <div className="absolute inset-0 bg-grid pointer-events-none" />
 
-      <div className="relative mx-auto max-w-7xl px-5 lg:px-8 pt-16 sm:pt-24 lg:pt-32 pb-16 text-center">
+      <div className="relative z-[2] mx-auto max-w-7xl px-5 lg:px-8 pt-16 sm:pt-24 lg:pt-32 pb-16 text-center">
         <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-border bg-surface/60 backdrop-blur text-xs text-muted fade-up">
           <span className="relative flex h-1.5 w-1.5">
             <span className="absolute inline-flex h-full w-full rounded-full bg-accent opacity-75 animate-ping" />

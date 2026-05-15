@@ -11,6 +11,14 @@
 import { SYSTEM_PROMPT } from "./system-prompt";
 import type { GenerateResult, GenerateResultFile } from "./types";
 
+/**
+ * Allow callers to swap the cached system prompt (e.g. EDIT_PROMPT, REMIX_PROMPT)
+ * while keeping the rest of the OpenRouter plumbing identical.
+ */
+export interface SystemOverride {
+  systemText?: string;
+}
+
 const OPENROUTER_API = "https://openrouter.ai/api/v1/chat/completions";
 
 interface OpenRouterMessage {
@@ -29,16 +37,17 @@ interface BuildRequestArgs {
   model: string;
   priorFiles?: GenerateResultFile[];
   stream?: boolean;
+  systemText?: string;
 }
 
-function buildBody({ prompt, model, priorFiles, stream }: BuildRequestArgs): string {
+function buildBody({ prompt, model, priorFiles, stream, systemText }: BuildRequestArgs): string {
   // Cached system block. Anthropic / OpenRouter prompt caching applies.
   const systemMsg: OpenRouterMessage = {
     role: "system",
     content: [
       {
         type: "text",
-        text: SYSTEM_PROMPT,
+        text: systemText ?? SYSTEM_PROMPT,
         cache_control: { type: "ephemeral" },
       },
     ],
@@ -94,11 +103,18 @@ export async function generateSite(
   prompt: string,
   model: string,
   priorFiles?: GenerateResultFile[],
+  override?: SystemOverride,
 ): Promise<GenerateResult> {
   const res = await fetch(OPENROUTER_API, {
     method: "POST",
     headers: authHeaders(),
-    body: buildBody({ prompt, model, priorFiles, stream: false }),
+    body: buildBody({
+      prompt,
+      model,
+      priorFiles,
+      stream: false,
+      systemText: override?.systemText,
+    }),
   });
 
   if (!res.ok) {
@@ -123,13 +139,20 @@ export async function generateSiteStream(
   model: string,
   priorFiles: GenerateResultFile[] | undefined,
   callbacks: StreamCallbacks,
+  override?: SystemOverride,
 ): Promise<GenerateResult> {
   callbacks.onMeta?.({ model });
 
   const res = await fetch(OPENROUTER_API, {
     method: "POST",
     headers: authHeaders(),
-    body: buildBody({ prompt, model, priorFiles, stream: true }),
+    body: buildBody({
+      prompt,
+      model,
+      priorFiles,
+      stream: true,
+      systemText: override?.systemText,
+    }),
   });
 
   if (!res.ok || !res.body) {

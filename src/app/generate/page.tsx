@@ -57,6 +57,7 @@ function GenerateInner() {
   const [partial, setPartial] = useState<string>("");
   const [generating, setGenerating] = useState(false);
   const [iframeKey, setIframeKey] = useState(0);
+  const [chatOpen, setChatOpen] = useState(false);
   const startedRef = useRef(false);
 
   // When a result arrives or changes, default-select index.html for the code viewer
@@ -78,21 +79,33 @@ function GenerateInner() {
         id: assistantMsgId,
         role: "assistant",
         content: opts?.followUp
-          ? "Got it — applying your changes…"
-          : "Designing your site…",
+          ? "Reading the current site…"
+          : "Reading your prompt and choosing a direction…",
         status: "streaming",
         createdAt: Date.now(),
       });
 
+      // Track which files the model has started writing so the chat can show
+      // an honest, live "writing styles.css…" status (no fake narration).
+      const filesSeen: string[] = [];
+      let lastReport = "";
+      const PATH_REGEX = /"path"\s*:\s*"([^"]{1,200})"/g;
+
       try {
-        const res = await fetch("/api/generate", {
+        // Follow-up edits hit /api/edit (uses EDIT_PROMPT, cached).
+        // First-pass generation hits /api/generate (full SYSTEM_PROMPT, cached).
+        const endpoint = opts?.followUp ? "/api/edit" : "/api/generate";
+        const reqBody = opts?.followUp
+          ? {
+              prompt,
+              model: project.model,
+              priorFiles: project.result?.files ?? [],
+            }
+          : { prompt, model: project.model };
+        const res = await fetch(endpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            prompt,
-            model: project.model,
-            priorFiles: opts?.followUp ? project.result?.files : undefined,
-          }),
+          body: JSON.stringify(reqBody),
         });
 
         if (!res.ok || !res.body) {
@@ -123,6 +136,26 @@ function GenerateInner() {
               if (evt.type === "chunk") {
                 accumulated += evt.delta as string;
                 setPartial(accumulated);
+
+                // Honest progress: extract every "path":"…" the model has
+                // emitted so far. When we see a new one, update the chat
+                // bubble to say "Writing <path>…".
+                PATH_REGEX.lastIndex = 0;
+                let m: RegExpExecArray | null;
+                while ((m = PATH_REGEX.exec(accumulated))) {
+                  const path = m[1];
+                  if (!filesSeen.includes(path)) filesSeen.push(path);
+                }
+                const current = filesSeen[filesSeen.length - 1];
+                if (current && current !== lastReport) {
+                  lastReport = current;
+                  const idx = filesSeen.length;
+                  const verb = inferVerb(current);
+                  updateMessage(project.id, assistantMsgId, {
+                    content: `${verb} \`${current}\`  · file ${idx}`,
+                    status: "streaming",
+                  });
+                }
               } else if (evt.type === "done") {
                 finalResult = evt.result as GenerateResult;
               } else if (evt.type === "error") {
@@ -219,9 +252,30 @@ function GenerateInner() {
   function handleShare() {
     if (!project) return;
     const link = window.location.href;
-    navigator.clipboard.writeText(link).then(() => {
-      alert("Link copied to clipboard");
-    });
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard
+        .writeText(link)
+        .then(() => alert("Project link copied to clipboard"))
+        .catch(() => window.prompt("Copy this link:", link));
+    } else {
+      window.prompt("Copy this link:", link);
+    }
+  }
+
+  function handlePublish() {
+    if (!project?.result) {
+      alert("Generate the site first, then publish.");
+      return;
+    }
+    const entry = project.result.files.find((f) => f.path === "index.html");
+    if (!entry) {
+      alert("No index.html in the generated site.");
+      return;
+    }
+    // Open a self-contained Blob URL in a new tab as a stand-in publish.
+    const blob = new Blob([entry.content], { type: "text/html" });
+    const url = URL.createObjectURL(blob);
+    window.open(url, "_blank", "noopener,noreferrer");
   }
 
   // Empty state — no project
@@ -262,20 +316,46 @@ function GenerateInner() {
         onModelChange={(m) => upsert({ ...project, model: m })}
         onDownload={handleDownload}
         onShare={handleShare}
+        onPublish={handlePublish}
         onRefresh={() => setIframeKey((k) => k + 1)}
+        onToggleChat={() => setChatOpen((o) => !o)}
+        chatOpen={chatOpen}
       />
 
-      <div className="flex-1 grid grid-cols-[340px_1fr] min-h-0">
-        <ChatPanel
-          messages={project.history}
-          generating={generating}
-          onFollowUp={handleFollowUp}
-        />
+      <div className="flex-1 relative min-h-0 md:grid md:grid-cols-[340px_1fr] flex">
+        {/* Chat panel: docked on md+, drawer on mobile */}
+        <div
+          aria-hidden={!chatOpen ? true : undefined}
+          className={cn(
+            "md:static md:translate-x-0 md:opacity-100 md:pointer-events-auto",
+            "absolute inset-y-0 left-0 z-30 w-[88%] max-w-[360px]",
+            "transition-transform duration-300 ease-out",
+            chatOpen
+              ? "translate-x-0 pointer-events-auto"
+              : "-translate-x-full pointer-events-none md:pointer-events-auto",
+          )}
+        >
+          <ChatPanel
+            messages={project.history}
+            generating={generating}
+            onFollowUp={handleFollowUp}
+          />
+        </div>
 
-        <div className="min-w-0 min-h-0 flex">
+        {/* Mobile backdrop when chat is open */}
+        {chatOpen && (
+          <button
+            type="button"
+            aria-label="Close chat"
+            onClick={() => setChatOpen(false)}
+            className="md:hidden absolute inset-0 z-20 bg-black/60 backdrop-blur-sm"
+          />
+        )}
+
+        <div className="flex-1 min-w-0 min-h-0 flex">
           {view === "code" && project.result ? (
             <div className="flex flex-1 min-w-0">
-              <div className="w-64 shrink-0">
+              <div className="hidden sm:block w-56 lg:w-64 shrink-0">
                 <FileTree
                   files={project.result.files}
                   activePath={activePath}
@@ -305,6 +385,23 @@ function GenerateInner() {
       </div>
     </div>
   );
+}
+
+function inferVerb(path: string): string {
+  const lower = path.toLowerCase();
+  if (lower.endsWith(".css")) return "Styling";
+  if (lower.endsWith(".js")) return "Wiring up";
+  if (lower.endsWith(".json")) return "Setting up";
+  if (lower === "index.html") return "Drafting homepage";
+  if (lower.startsWith("pages/")) {
+    const name = lower
+      .replace("pages/", "")
+      .replace(/\.html$/, "")
+      .replace(/[-_]/g, " ");
+    return `Building ${name} page`;
+  }
+  if (lower.endsWith(".html")) return "Writing page";
+  return "Writing";
 }
 
 function slugify(s: string): string {

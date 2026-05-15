@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useRef, useEffect } from "react";
-import { ArrowUp, Sparkles, Loader2 } from "lucide-react";
+import { ArrowUp, Sparkles, Loader2, Wand2 } from "lucide-react";
 import { ModelSelector } from "./model-selector";
 import { useDraft, useProjects, useUser } from "@/lib/store";
 import { cn } from "@/lib/utils";
@@ -37,7 +37,21 @@ export function PromptBox({
 
   const [value, setValue] = useState(initialPrompt ?? draftPrompt ?? "");
   const [submitting, setSubmitting] = useState(false);
+  const [improving, setImproving] = useState(false);
+  const [shake, setShake] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // sync local value with the draft store so clicking an example card (which
+  // calls setDraftPrompt) actually populates the textarea.
+  useEffect(() => {
+    // skip the follow-up box — we never want the home draft bleeding into chat
+    if (onSubmitFollowUp) return;
+    if (typeof draftPrompt === "string" && draftPrompt !== value) {
+      setValue(draftPrompt);
+      // bring textarea into view + focus so the user sees the prompt landed
+      textareaRef.current?.focus({ preventScroll: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftPrompt, onSubmitFollowUp]);
 
   // Auto-resize textarea
   useEffect(() => {
@@ -52,8 +66,15 @@ export function PromptBox({
   }, [autoFocus]);
 
   async function submit() {
+    if (submitting) return;
     const prompt = value.trim();
-    if (prompt.length < 5 || submitting) return;
+    if (prompt.length < 5) {
+      // Premium UX: instead of a dead grey button, give clear feedback.
+      setShake(true);
+      setTimeout(() => setShake(false), 480);
+      textareaRef.current?.focus();
+      return;
+    }
     setSubmitting(true);
     setDraftPrompt(prompt);
 
@@ -109,12 +130,46 @@ export function PromptBox({
     }
   }
 
+  async function improve() {
+    if (improving || submitting) return;
+    const raw = value.trim();
+    if (raw.length < 3) {
+      setShake(true);
+      setTimeout(() => setShake(false), 480);
+      textareaRef.current?.focus();
+      return;
+    }
+    setImproving(true);
+    try {
+      const res = await fetch("/api/improve-prompt", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: raw, model: draftModel }),
+      });
+      if (!res.ok) throw new Error(`${res.status}`);
+      const data = (await res.json()) as { improved: string };
+      if (data?.improved) {
+        const improved = data.improved.trim();
+        setValue(improved);
+        setDraftPrompt(improved);
+      }
+    } catch {
+      // silent — leave the user's prompt alone
+      setShake(true);
+      setTimeout(() => setShake(false), 480);
+    } finally {
+      setImproving(false);
+      textareaRef.current?.focus();
+    }
+  }
+
   return (
     <div
       className={cn(
         "relative w-full mx-auto rounded-3xl border border-border bg-surface/80 backdrop-blur-md",
         "transition-all focus-within:border-accent/50 focus-within:shadow-[0_0_0_4px_rgba(184,227,201,0.08),0_30px_80px_-30px_rgba(184,227,201,0.35)]",
         large ? "max-w-3xl p-4 sm:p-5" : "max-w-2xl p-3",
+        shake && "shake-input",
       )}
     >
       <textarea
@@ -133,6 +188,28 @@ export function PromptBox({
 
       <div className="mt-3 flex items-center gap-2 flex-wrap">
         <ModelSelector value={draftModel} onChange={setDraftModel} compact={!large} />
+
+        <button
+          type="button"
+          onClick={improve}
+          disabled={improving || submitting}
+          aria-label="Improve prompt with AI"
+          title="Let the AI expand your prompt into a richer brief"
+          className={cn(
+            "inline-flex items-center gap-1.5 rounded-full border border-border bg-surface/80 backdrop-blur transition-all",
+            "hover:border-accent/40 hover:bg-surface text-foreground",
+            "disabled:opacity-60 disabled:cursor-progress",
+            large ? "px-3 py-1.5 text-xs" : "px-2.5 py-1.5 text-[11px]",
+          )}
+        >
+          {improving ? (
+            <Loader2 className="w-3.5 h-3.5 animate-spin text-accent" />
+          ) : (
+            <Wand2 className="w-3.5 h-3.5 text-accent" />
+          )}
+          <span className="hidden sm:inline">{improving ? "Improving…" : "Improve prompt"}</span>
+          <span className="sm:hidden">{improving ? "…" : "Improve"}</span>
+        </button>
 
         <div className="hidden sm:flex items-center gap-1.5 text-xs text-subtle px-2.5 py-1">
           <kbd className="rounded border border-border bg-elevated px-1.5 py-0.5 font-mono text-[10px]">
@@ -153,11 +230,11 @@ export function PromptBox({
           <button
             type="button"
             onClick={submit}
-            disabled={value.trim().length < 5 || submitting}
+            disabled={submitting}
             className={cn(
-              "btn-generate inline-flex items-center gap-2 rounded-full font-semibold",
+              "btn-generate inline-flex items-center gap-2 rounded-full font-semibold cursor-pointer",
               large ? "px-6 py-3 text-base" : "px-5 py-2.5 text-sm",
-              "disabled:opacity-40 disabled:cursor-not-allowed",
+              "disabled:cursor-progress",
             )}
           >
             {submitting ? (

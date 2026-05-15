@@ -1,8 +1,15 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { Fragment, useEffect, useRef } from "react";
 import type { ChatMessage } from "@/lib/types";
-import { Loader2, Sparkles, User2, AlertCircle, Wand2 } from "lucide-react";
+import {
+  Loader2,
+  Sparkles,
+  User2,
+  AlertCircle,
+  Wand2,
+  FileCode2,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PromptBox } from "@/components/prompt-box";
 
@@ -25,7 +32,7 @@ export function ChatPanel({ messages, generating, onFollowUp }: ChatPanelProps) 
   return (
     <aside
       className={cn(
-        "h-full flex flex-col border-r border-border bg-surface/40",
+        "h-full flex flex-col border-r border-border bg-surface md:bg-surface/40 shadow-2xl shadow-black/40 md:shadow-none",
         generating && "ring-glow",
       )}
     >
@@ -54,25 +61,40 @@ export function ChatPanel({ messages, generating, onFollowUp }: ChatPanelProps) 
 function MessageBubble({ message }: { message: ChatMessage }) {
   const isUser = message.role === "user";
   const isError = message.status === "error";
+  const isStreaming = message.status === "streaming";
 
   return (
     <div className={cn("flex gap-2.5", isUser && "flex-row-reverse")}>
       <div
         className={cn(
           "shrink-0 w-7 h-7 rounded-full grid place-items-center text-[11px] font-semibold",
-          isUser ? "bg-foreground/10 text-foreground" : "bg-accent text-black",
+          isUser
+            ? "bg-foreground/10 text-foreground"
+            : "bg-accent text-black",
+          isStreaming && "chat-avatar-pulse",
         )}
       >
-        {isUser ? <User2 className="w-3.5 h-3.5" /> : <Sparkles className="w-3.5 h-3.5" />}
+        {isUser ? (
+          <User2 className="w-3.5 h-3.5" />
+        ) : (
+          <Sparkles
+            className={cn(
+              "w-3.5 h-3.5",
+              isStreaming && "animate-spin",
+            )}
+          />
+        )}
       </div>
       <div
         className={cn(
-          "rounded-2xl px-3.5 py-2.5 text-sm max-w-[85%] whitespace-pre-wrap",
+          "rounded-2xl px-3.5 py-2.5 text-sm max-w-[85%] whitespace-pre-wrap leading-relaxed",
           isUser
             ? "bg-foreground/5 text-foreground rounded-tr-sm"
             : isError
               ? "bg-red-500/10 border border-red-500/20 text-red-200 rounded-tl-sm"
-              : "bg-elevated text-foreground rounded-tl-sm border border-border",
+              : isStreaming
+                ? "bg-elevated/60 border border-accent/30 text-foreground rounded-tl-sm"
+                : "bg-elevated text-foreground rounded-tl-sm border border-border",
         )}
       >
         {isError && (
@@ -80,9 +102,47 @@ function MessageBubble({ message }: { message: ChatMessage }) {
             <AlertCircle className="w-3.5 h-3.5" /> Error
           </div>
         )}
-        {message.content}
+        <RichContent content={message.content} streaming={isStreaming} />
       </div>
     </div>
+  );
+}
+
+// Renders chat content with `backticked` segments rendered as soft file chips.
+function RichContent({
+  content,
+  streaming,
+}: {
+  content: string;
+  streaming: boolean;
+}) {
+  const parts = content.split(/(`[^`]+`)/g);
+  return (
+    <>
+      {parts.map((part, i) => {
+        if (part.startsWith("`") && part.endsWith("`")) {
+          const path = part.slice(1, -1);
+          return (
+            <span
+              key={i}
+              className={cn(
+                "inline-flex items-center gap-1 px-1.5 py-0.5 mx-0.5 rounded-md",
+                "bg-accent/10 border border-accent/25 text-accent-strong",
+                "font-mono text-[12px] align-baseline",
+                streaming && "chip-pulse",
+              )}
+            >
+              <FileCode2 className="w-3 h-3" />
+              {path}
+            </span>
+          );
+        }
+        return <Fragment key={i}>{part}</Fragment>;
+      })}
+      {streaming && (
+        <span className="inline-block align-middle ml-1 w-1.5 h-3.5 bg-accent/70 rounded-sm caret-blink" />
+      )}
+    </>
   );
 }
 

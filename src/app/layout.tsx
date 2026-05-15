@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -22,6 +22,17 @@ export const metadata: Metadata = {
     description: "Build a stunning website from one prompt.",
     type: "website",
   },
+};
+
+// CRITICAL: without this, mobile browsers render at desktop width (980 CSS px)
+// and Tailwind's `sm:` breakpoints (>=640px) collapse to desktop layout, so
+// the hamburger button gets hidden and only the desktop nav renders — making
+// the site feel "unclickable" on a real phone.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 5,
+  themeColor: "#000000",
 };
 
 export default function RootLayout({

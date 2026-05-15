@@ -66,10 +66,22 @@ export const EXAMPLES: Example[] = [
 
 export const MODELS: { id: string; label: string; tagline: string; tier: "default" | "pro" }[] = [
   {
+    id: "openrouter/owl-alpha",
+    label: "Owl Alpha",
+    tagline: "Henosis default. Fast, premium website generation.",
+    tier: "default",
+  },
+  {
+    id: "kwaipilot/kat-coder-pro-v2",
+    label: "KAT-Coder Pro V2",
+    tagline: "Kwai's flagship — production-grade landing pages.",
+    tier: "default",
+  },
+  {
     id: "anthropic/claude-sonnet-4.5",
     label: "Claude Sonnet 4.5",
     tagline: "Best for production-quality, well-structured sites.",
-    tier: "default",
+    tier: "pro",
   },
   {
     id: "anthropic/claude-opus-4.1",
@@ -93,6 +105,12 @@ export const MODELS: { id: string; label: string; tagline: string; tier: "defaul
     id: "google/gemini-2.5-pro",
     label: "Gemini 2.5 Pro",
     tagline: "Excellent multi-page generation.",
+    tier: "default",
+  },
+  {
+    id: "moonshotai/kimi-k2",
+    label: "Kimi K2",
+    tagline: "Long-context, fast iteration.",
     tier: "default",
   },
 ];
