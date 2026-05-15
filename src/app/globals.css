@@ -1,0 +1,564 @@
+@import "tailwindcss";
+
+/* ───────────────────────────────────────────────────────────────
+   Henosis design tokens
+   Black + matte white + soft matte sage-green (non-toxic).
+   ─────────────────────────────────────────────────────────────── */
+:root {
+  --background: #000000;
+  --surface: #0a0a0a;
+  --elevated: #131313;
+  --border: #1f1f1f;
+  --border-strong: #2a2a2a;
+  --foreground: #f5f5f1;
+  --muted: #9b9b95;
+  --subtle: #5a5a55;
+  --accent: #b8e3c9;
+  --accent-strong: #6dd99e;
+  --accent-soft: rgba(184, 227, 201, 0.12);
+  --glow: rgba(184, 227, 201, 0.45);
+
+  --bronze: #c08552;
+  --bronze-glow: rgba(192, 133, 82, 0.4);
+  --silver: #c7c9d1;
+  --silver-glow: rgba(199, 201, 209, 0.45);
+  --gold: #f0c861;
+  --gold-glow: rgba(240, 200, 97, 0.55);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-elevated: var(--elevated);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-subtle: var(--subtle);
+  --color-accent: var(--accent);
+  --color-accent-strong: var(--accent-strong);
+  --color-bronze: var(--bronze);
+  --color-silver: var(--silver);
+  --color-gold: var(--gold);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+* {
+  border-color: var(--border);
+}
+
+html,
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  /* kill 300ms tap delay on iOS / Android, let pinch-zoom still work */
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+}
+
+/* Make every actionable element feel tappable on mobile (iOS Safari is
+   stricter — it only fires click on elements that look interactive). */
+button,
+a,
+[role="button"] {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+::selection {
+  background: var(--accent);
+  color: #000;
+}
+
+/* Subtle ambient grid behind the hero */
+.bg-grid {
+  background-image:
+    linear-gradient(to right, rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 30%, black 40%, transparent 80%);
+}
+
+.bg-radial-spot {
+  background:
+    radial-gradient(700px circle at 50% -10%, rgba(184, 227, 201, 0.18), transparent 60%),
+    radial-gradient(500px circle at 90% 110%, rgba(184, 227, 201, 0.08), transparent 60%);
+}
+
+/* ───────────────────────────────────────────────────────────────
+   Henosis "flow" backdrop — matches the user's reference:
+     - THICK vertical bars (~8 across viewport) with soft, glowy edges
+     - matte sage-green tint (replaces the chrome/silver of the ref)
+     - horizontal "breath" lighting: bright top → dim → bright middle
+       → dim → bright bottom (creates the "X" / hourglass pulse)
+     - center column gets an extra ellipse of warmth
+     - whole thing slowly drifts sideways (flow effect)
+     - dust/grain overlay floats independently
+     - on mobile: amplitude & opacity dimmed so it doesn't tire the eyes
+   ─────────────────────────────────────────────────────────────── */
+.bg-flow-stripes {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 0;
+  --bar-amp: 1;
+  /* bar pitch — one full period (bar + gap). ~6-8 bars across at 1280px. */
+  --bar-pitch: 168px;
+  /* fades the whole thing into the prompt-box area below */
+  -webkit-mask-image: linear-gradient(
+    180deg,
+    black 0%,
+    black 60%,
+    rgba(0, 0, 0, 0.6) 80%,
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    180deg,
+    black 0%,
+    black 60%,
+    rgba(0, 0, 0, 0.6) 80%,
+    transparent 100%
+  );
+}
+
+/* primary thick bars layer */
+.bg-flow-stripes::before {
+  content: "";
+  position: absolute;
+  inset: -4% -10%;
+  background-image:
+    /* one tall thick bar with soft glow edges, tiled horizontally */
+    repeating-linear-gradient(
+      90deg,
+      transparent 0,
+      transparent calc(var(--bar-pitch) * 0.10),
+      rgba(184, 227, 201, calc(0.10 * var(--bar-amp))) calc(var(--bar-pitch) * 0.18),
+      rgba(184, 227, 201, calc(0.34 * var(--bar-amp))) calc(var(--bar-pitch) * 0.32),
+      rgba(184, 227, 201, calc(0.34 * var(--bar-amp))) calc(var(--bar-pitch) * 0.42),
+      rgba(184, 227, 201, calc(0.10 * var(--bar-amp))) calc(var(--bar-pitch) * 0.56),
+      transparent calc(var(--bar-pitch) * 0.64),
+      transparent 100%
+    );
+  background-size: var(--bar-pitch) 100%;
+  /* horizontal "breath" — bright top, dim middle, bright middle band, dim, bright bottom */
+  -webkit-mask-image: linear-gradient(
+    180deg,
+    rgba(0, 0, 0, 0.9) 0%,
+    rgba(0, 0, 0, 0.45) 22%,
+    rgba(0, 0, 0, 0.95) 48%,
+    rgba(0, 0, 0, 0.45) 74%,
+    rgba(0, 0, 0, 0.9) 100%
+  );
+  mask-image: linear-gradient(
+    180deg,
+    rgba(0, 0, 0, 0.9) 0%,
+    rgba(0, 0, 0, 0.45) 22%,
+    rgba(0, 0, 0, 0.95) 48%,
+    rgba(0, 0, 0, 0.45) 74%,
+    rgba(0, 0, 0, 0.9) 100%
+  );
+  filter: blur(0.6px);
+  animation: flow-drift 28s linear infinite;
+  will-change: transform;
+}
+
+/* central column glow — concentrates light/colour in the middle */
+.bg-flow-stripes::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(
+      ellipse 28% 70% at 50% 50%,
+      rgba(184, 227, 201, calc(0.16 * var(--bar-amp))) 0%,
+      transparent 70%
+    ),
+    radial-gradient(
+      ellipse 60% 30% at 50% 50%,
+      rgba(109, 217, 158, calc(0.08 * var(--bar-amp))) 0%,
+      transparent 80%
+    );
+  mix-blend-mode: screen;
+}
+
+@keyframes flow-drift {
+  from { transform: translateX(0); }
+  to   { transform: translateX(calc(-1 * var(--bar-pitch))); }
+}
+
+/* dust/particles overlay — soft sage flecks drifting */
+.bg-flow-dust {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 1;
+  background-image:
+    radial-gradient(rgba(184, 227, 201, 0.55) 0.7px, transparent 1.4px),
+    radial-gradient(rgba(184, 227, 201, 0.35) 0.5px, transparent 1px),
+    radial-gradient(rgba(109, 217, 158, 0.35) 0.4px, transparent 1px);
+  background-size: 110px 110px, 70px 70px, 160px 160px;
+  background-position: 0 0, 30px 50px, 60px 20px;
+  opacity: 0.42;
+  -webkit-mask-image: linear-gradient(
+    180deg,
+    black 0%,
+    rgba(0, 0, 0, 0.6) 65%,
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    180deg,
+    black 0%,
+    rgba(0, 0, 0, 0.6) 65%,
+    transparent 100%
+  );
+  animation: dust-float 32s linear infinite;
+  will-change: background-position;
+}
+@keyframes dust-float {
+  0% {
+    background-position: 0 0, 30px 50px, 60px 20px;
+  }
+  100% {
+    background-position: 110px -110px, 100px -20px, 160px -140px;
+  }
+}
+
+/* Mobile: dim the flow so it doesn't fight the content */
+@media (max-width: 640px) {
+  .bg-flow-stripes {
+    --bar-amp: 0.6;
+    --bar-pitch: 96px;
+  }
+  .bg-flow-dust {
+    opacity: 0.28;
+  }
+}
+
+/* Reduced motion: stop the drift */
+@media (prefers-reduced-motion: reduce) {
+  .bg-flow-stripes::before,
+  .bg-flow-dust {
+    animation: none;
+  }
+}
+
+/* ───────────────────────────────────────────────────────────────
+   Animated glowing hero headline
+   The "shimmer" sweep moves left → right forever.
+   The "pulse-glow" makes the text aura breathe.
+   ─────────────────────────────────────────────────────────────── */
+@keyframes shimmer-sweep {
+  0% {
+    background-position: -200% 50%;
+  }
+  100% {
+    background-position: 200% 50%;
+  }
+}
+
+@keyframes pulse-glow {
+  0%,
+  100% {
+    text-shadow:
+      0 0 24px rgba(184, 227, 201, 0.35),
+      0 0 80px rgba(184, 227, 201, 0.15);
+  }
+  50% {
+    text-shadow:
+      0 0 36px rgba(184, 227, 201, 0.55),
+      0 0 120px rgba(184, 227, 201, 0.28);
+  }
+}
+
+.hero-headline {
+  background: linear-gradient(
+    100deg,
+    #ffffff 0%,
+    #ffffff 30%,
+    var(--accent) 45%,
+    #ffffff 60%,
+    #ffffff 100%
+  );
+  background-size: 220% auto;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  animation:
+    shimmer-sweep 8s linear infinite,
+    pulse-glow 5s ease-in-out infinite;
+}
+
+/* fade-in helpers */
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.fade-up {
+  animation: fade-up 0.8s ease-out both;
+}
+.fade-up-delay-1 {
+  animation: fade-up 0.8s ease-out 0.15s both;
+}
+.fade-up-delay-2 {
+  animation: fade-up 0.8s ease-out 0.3s both;
+}
+.fade-up-delay-3 {
+  animation: fade-up 0.8s ease-out 0.45s both;
+}
+
+/* Generate-button gradient + soft sheen */
+@keyframes button-sheen {
+  0% {
+    background-position: 0% 50%;
+  }
+  100% {
+    background-position: 200% 50%;
+  }
+}
+
+.btn-generate {
+  background: linear-gradient(
+    100deg,
+    #6dd99e 0%,
+    #b8e3c9 35%,
+    #ffffff 50%,
+    #b8e3c9 65%,
+    #6dd99e 100%
+  );
+  background-size: 200% 100%;
+  color: #000;
+  animation: button-sheen 4s linear infinite;
+  box-shadow:
+    0 0 0 1px rgba(184, 227, 201, 0.5) inset,
+    0 14px 40px -10px rgba(184, 227, 201, 0.55);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.btn-generate:hover {
+  transform: translateY(-1px);
+  box-shadow:
+    0 0 0 1px rgba(184, 227, 201, 0.8) inset,
+    0 22px 60px -10px rgba(184, 227, 201, 0.7);
+}
+
+/* Pricing tier card glow animations */
+@keyframes bronze-shine {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1px rgba(192, 133, 82, 0.25),
+      0 12px 40px -16px rgba(192, 133, 82, 0.25);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px rgba(192, 133, 82, 0.45),
+      0 18px 60px -16px rgba(192, 133, 82, 0.45);
+  }
+}
+
+@keyframes silver-shine {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1px rgba(199, 201, 209, 0.3),
+      0 16px 50px -14px rgba(199, 201, 209, 0.3);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.55),
+      0 26px 80px -14px rgba(199, 201, 209, 0.55);
+  }
+}
+
+@keyframes gold-shine {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1px rgba(240, 200, 97, 0.4),
+      0 18px 60px -14px rgba(240, 200, 97, 0.45);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px rgba(240, 200, 97, 0.85),
+      0 30px 100px -14px rgba(240, 200, 97, 0.8);
+  }
+}
+
+.tier-bronze {
+  animation: bronze-shine 6s ease-in-out infinite;
+}
+.tier-bronze:hover {
+  animation-duration: 2.2s;
+}
+
+.tier-silver {
+  animation: silver-shine 6s ease-in-out infinite;
+}
+.tier-silver:hover {
+  animation-duration: 2.2s;
+}
+
+.tier-gold {
+  animation: gold-shine 6s ease-in-out infinite;
+}
+.tier-gold:hover {
+  animation-duration: 2s;
+}
+
+/* Tier sheen overlay that moves on hover */
+@keyframes tier-sweep {
+  0% {
+    transform: translateX(-110%) skewX(-12deg);
+  }
+  100% {
+    transform: translateX(220%) skewX(-12deg);
+  }
+}
+.tier-sweep::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: 35%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.35),
+    transparent
+  );
+  opacity: 0;
+  transition: opacity 0.4s ease;
+  pointer-events: none;
+}
+.tier-sweep:hover::after {
+  opacity: 1;
+  animation: tier-sweep 1.6s ease-in-out infinite;
+}
+
+/* dotted background for code editor panel */
+.bg-dots {
+  background-image: radial-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+  background-size: 18px 18px;
+}
+
+/* shimmery placeholder for the prompt loading state */
+@keyframes loading-bar {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+.loading-bar::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(184, 227, 201, 0.35),
+    transparent
+  );
+  animation: loading-bar 1.6s ease-in-out infinite;
+}
+
+/* Chat streaming animations — the assistant avatar gently pulses + the file
+   chip we just emitted gets a soft glow + the caret blinks while writing. */
+@keyframes chat-avatar-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(184, 227, 201, 0.45);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(184, 227, 201, 0);
+  }
+}
+.chat-avatar-pulse {
+  animation: chat-avatar-pulse 1.6s ease-out infinite;
+}
+@keyframes chip-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(184, 227, 201, 0.25);
+  }
+  50% {
+    box-shadow: 0 0 0 3px rgba(184, 227, 201, 0.06);
+  }
+}
+.chip-pulse {
+  animation: chip-pulse 1.4s ease-in-out infinite;
+}
+@keyframes caret-blink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+.caret-blink {
+  animation: caret-blink 0.9s steps(2, end) infinite;
+}
+
+/* subtle glow ring used around chat panel during generation */
+@keyframes ring-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 1px rgba(184, 227, 201, 0.2) inset;
+  }
+  50% {
+    box-shadow: 0 0 0 1px rgba(184, 227, 201, 0.55) inset;
+  }
+}
+.ring-glow {
+  animation: ring-pulse 2.5s ease-in-out infinite;
+}
+
+/* shake animation on prompt-box when user submits empty prompt */
+@keyframes shake-x {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  15%,
+  45%,
+  75% {
+    transform: translateX(-8px);
+  }
+  30%,
+  60%,
+  90% {
+    transform: translateX(8px);
+  }
+}
+.shake-input {
+  animation: shake-x 0.48s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+  border-color: rgba(255, 122, 122, 0.55) !important;
+  box-shadow: 0 0 0 4px rgba(255, 122, 122, 0.08),
+    0 22px 60px -10px rgba(255, 122, 122, 0.25) !important;
+}
+
+/* nice scrollbars */
+.scroll-soft::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.scroll-soft::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scroll-soft::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+}
+.scroll-soft::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
