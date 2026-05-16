@@ -1,18 +1,20 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { Redis } from "@upstash/redis";
 import type { Session } from "next-auth";
 
 /**
- * File-backed user/quota store.
+ * User / quota store with two backends:
  *
- * Why a JSON file: this repo has no database yet, and the user explicitly
- * asked for "сайт всегда по id видел" — server-side knowledge of every
- * user's tier and quota. A single `data/users.json` is the smallest thing
- * that works in `next dev` and survives restarts.
+ *   - **Upstash Redis** (used when `KV_REST_API_URL` + `KV_REST_API_TOKEN`
+ *     are set — the env vars Vercel KV injects automatically). One key per
+ *     user (`user:<id>`), so concurrent writes from different lambdas don't
+ *     trample each other.
+ *   - **File-backed JSON** at `data/users.json` for local `next dev`. Wrapped
+ *     in an in-process mutex.
  *
- * For production on serverless filesystems (Vercel etc.), swap the
- * `readAll` / `writeAll` helpers below for Vercel KV / Upstash / Postgres.
- * The rest of the module is storage-agnostic.
+ * Picked Upstash Redis because it speaks HTTP, so it works on Vercel's
+ * serverless lambdas without persistent connections.
  */
 
 export type Plan = "free" | "pro" | "ultra";
@@ -43,60 +45,99 @@ export const PLAN_LABEL: Record<Plan, "Bronze" | "Silver" | "Gold"> = {
 
 export const ALL_PLANS: Plan[] = ["free", "pro", "ultra"];
 
+// ---------------------------------------------------------------------------
+// Storage abstraction
+//
+// Two implementations: Redis (per-user keys, used in serverless / production)
+// and a JSON file at data/users.json (local dev). The Redis client is created
+// lazily so missing env vars don't blow up at import time.
+// ---------------------------------------------------------------------------
+
+interface Storage {
+  get(id: string): Promise<UserRecord | null>;
+  put(record: UserRecord): Promise<void>;
+}
+
 const DATA_DIR = path.join(process.cwd(), "data");
 const USERS_FILE = path.join(DATA_DIR, "users.json");
 
-interface UsersFile {
-  users: Record<string, UserRecord>;
-}
+class FileStorage implements Storage {
+  // Per-process mutex; the JSON file is a single shared resource.
+  private chain: Promise<unknown> = Promise.resolve();
 
-// In-process mutex so concurrent writes don't trample each other.
-let writeChain: Promise<void> = Promise.resolve();
-
-function withLock<T>(fn: () => Promise<T>): Promise<T> {
-  const next = writeChain.then(fn, fn);
-  writeChain = next.then(
-    () => undefined,
-    () => undefined,
-  );
-  return next;
-}
-
-async function ensureFile(): Promise<void> {
-  await fs.mkdir(DATA_DIR, { recursive: true });
-  try {
-    await fs.access(USERS_FILE);
-  } catch {
-    await fs.writeFile(
-      USERS_FILE,
-      JSON.stringify({ users: {} }, null, 2),
-      "utf-8",
+  private withLock<T>(fn: () => Promise<T>): Promise<T> {
+    const next = this.chain.then(fn, fn) as Promise<T>;
+    this.chain = next.then(
+      () => undefined,
+      () => undefined,
     );
+    return next;
   }
-}
 
-async function readAll(): Promise<UsersFile> {
-  await ensureFile();
-  const raw = await fs.readFile(USERS_FILE, "utf-8");
-  try {
-    const parsed = JSON.parse(raw) as UsersFile;
-    if (!parsed || typeof parsed !== "object" || !parsed.users) {
-      return { users: {} };
+  private async readAll(): Promise<Record<string, UserRecord>> {
+    await fs.mkdir(DATA_DIR, { recursive: true });
+    try {
+      const raw = await fs.readFile(USERS_FILE, "utf-8");
+      const parsed = JSON.parse(raw) as { users?: Record<string, UserRecord> };
+      return parsed?.users ?? {};
+    } catch {
+      return {};
     }
-    return parsed;
-  } catch {
-    return { users: {} };
+  }
+
+  private async writeAll(users: Record<string, UserRecord>): Promise<void> {
+    await fs.mkdir(DATA_DIR, { recursive: true });
+    await fs.writeFile(USERS_FILE, JSON.stringify({ users }, null, 2), "utf-8");
+  }
+
+  async get(id: string): Promise<UserRecord | null> {
+    return this.withLock(async () => {
+      const users = await this.readAll();
+      return users[id] ?? null;
+    });
+  }
+
+  async put(record: UserRecord): Promise<void> {
+    await this.withLock(async () => {
+      const users = await this.readAll();
+      users[record.id] = record;
+      await this.writeAll(users);
+    });
   }
 }
 
-async function writeAll(data: UsersFile): Promise<void> {
-  await ensureFile();
-  await fs.writeFile(USERS_FILE, JSON.stringify(data, null, 2), "utf-8");
+class RedisStorage implements Storage {
+  constructor(private client: Redis) {}
+
+  private key(id: string): string {
+    return `henosis:user:${id}`;
+  }
+
+  async get(id: string): Promise<UserRecord | null> {
+    // Upstash auto-parses JSON values.
+    const v = await this.client.get<UserRecord>(this.key(id));
+    return v ?? null;
+  }
+
+  async put(record: UserRecord): Promise<void> {
+    await this.client.set(this.key(record.id), record);
+  }
 }
+
+function makeStorage(): Storage {
+  if (process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN) {
+    return new RedisStorage(Redis.fromEnv());
+  }
+  return new FileStorage();
+}
+
+// Module-level singleton — initialised once per server process.
+const storage = makeStorage();
+
+// ---------------------------------------------------------------------------
 
 export async function getUser(id: string): Promise<UserRecord | null> {
-  const data = await readAll();
-  return data.users[id] ?? null;
+  return storage.get(id);
 }
 
 export interface OAuthSeed {
@@ -112,80 +153,67 @@ export interface OAuthSeed {
  * them.
  */
 export async function getOrCreateUser(seed: OAuthSeed): Promise<UserRecord> {
-  return withLock(async () => {
-    const data = await readAll();
-    const existing = data.users[seed.id];
-    if (existing) {
-      const next: UserRecord = {
-        ...existing,
-        email: seed.email || existing.email,
-        name: seed.name || existing.name,
-        image: seed.image ?? existing.image,
-        updatedAt: Date.now(),
-      };
-      if (
-        next.email !== existing.email ||
-        next.name !== existing.name ||
-        next.image !== existing.image
-      ) {
-        data.users[seed.id] = next;
-        await writeAll(data);
-      }
-      return next;
-    }
-    const created: UserRecord = {
-      id: seed.id,
-      email: seed.email,
-      name: seed.name,
-      image: seed.image,
-      plan: "free",
-      generationsUsed: 0,
-      joinedAt: Date.now(),
+  const existing = await storage.get(seed.id);
+  if (existing) {
+    const next: UserRecord = {
+      ...existing,
+      email: seed.email || existing.email,
+      name: seed.name || existing.name,
+      image: seed.image ?? existing.image,
       updatedAt: Date.now(),
     };
-    data.users[seed.id] = created;
-    await writeAll(data);
-    return created;
-  });
+    if (
+      next.email !== existing.email ||
+      next.name !== existing.name ||
+      next.image !== existing.image
+    ) {
+      await storage.put(next);
+    }
+    return next;
+  }
+  const created: UserRecord = {
+    id: seed.id,
+    email: seed.email,
+    name: seed.name,
+    image: seed.image,
+    plan: "free",
+    generationsUsed: 0,
+    joinedAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+  await storage.put(created);
+  return created;
 }
 
 export async function setPlan(
   id: string,
   plan: Plan,
 ): Promise<UserRecord | null> {
-  return withLock(async () => {
-    const data = await readAll();
-    const u = data.users[id];
-    if (!u) return null;
-    // Reset usage when changing plan so the new tier's quota is fresh.
-    const next: UserRecord = {
-      ...u,
-      plan,
-      generationsUsed: 0,
-      updatedAt: Date.now(),
-    };
-    data.users[id] = next;
-    await writeAll(data);
-    return next;
-  });
+  const u = await storage.get(id);
+  if (!u) return null;
+  // Reset usage when changing plan so the new tier's quota is fresh.
+  const next: UserRecord = {
+    ...u,
+    plan,
+    generationsUsed: 0,
+    updatedAt: Date.now(),
+  };
+  await storage.put(next);
+  return next;
 }
 
 export async function incrementUsage(
   id: string,
 ): Promise<UserRecord | null> {
-  return withLock(async () => {
-    const data = await readAll();
-    const u = data.users[id];
-    if (!u) return null;
-    const next: UserRecord = {
-      ...u,
-      generationsUsed: u.generationsUsed + 1,
-      updatedAt: Date.now(),
-    };
-    data.users[id] = next;
-    await writeAll(data);
-    return next;
-  });
+  const u = await storage.get(id);
+  if (!u) return null;
+  const next: UserRecord = {
+    ...u,
+    generationsUsed: u.generationsUsed + 1,
+    updatedAt: Date.now(),
+  };
+  await storage.put(next);
+  return next;
 }
 
 export function quotaRemaining(user: UserRecord): number {
