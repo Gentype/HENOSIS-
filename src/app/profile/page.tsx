@@ -4,22 +4,24 @@ import { useRouter } from "next/navigation";
 import { Navbar } from "@/components/navbar";
 import { Footer } from "@/components/footer";
 import { useUser, useProjects } from "@/lib/store";
-import { PLAN_LIMITS } from "@/lib/types";
 import { useEffect, useState } from "react";
+import Image from "next/image";
 import { Crown, LogOut, Sparkles, Shield } from "lucide-react";
 import Link from "next/link";
 import { cn, relativeTime } from "@/lib/utils";
+import type { Plan } from "@/lib/types";
 
 export default function ProfilePage() {
   const router = useRouter();
   const user = useUser((s) => s.user);
+  const loading = useUser((s) => s.loading);
   const signOut = useUser((s) => s.signOut);
   const projects = useProjects((s) => s.projects);
   const clearProjects = useProjects((s) => s.clear);
   const [hydrated, setHydrated] = useState(false);
   useEffect(() => setHydrated(true), []);
 
-  if (hydrated && !user) {
+  if (hydrated && !loading && !user) {
     return (
       <>
         <Navbar />
@@ -48,8 +50,10 @@ export default function ProfilePage() {
     );
   }
 
-  const limit = PLAN_LIMITS[user.plan];
-  const pct = Math.min(100, (user.generationsUsed / limit) * 100);
+  const pct =
+    user.limit == null
+      ? 0
+      : Math.min(100, (user.generationsUsed / user.limit) * 100);
 
   return (
     <>
@@ -57,9 +61,20 @@ export default function ProfilePage() {
       <main className="flex-1">
         <section className="mx-auto max-w-5xl px-5 lg:px-8 pt-10 pb-16">
           <div className="flex items-center gap-4">
-            <div className="w-16 h-16 rounded-full bg-accent text-black grid place-items-center text-2xl font-semibold uppercase">
-              {user.name?.[0] ?? "U"}
-            </div>
+            {user.image ? (
+              <Image
+                src={user.image}
+                alt={user.name}
+                width={64}
+                height={64}
+                className="w-16 h-16 rounded-full border border-border object-cover"
+                unoptimized
+              />
+            ) : (
+              <div className="w-16 h-16 rounded-full bg-accent text-black grid place-items-center text-2xl font-semibold uppercase">
+                {user.name?.[0] ?? "U"}
+              </div>
+            )}
             <div>
               <h1 className="text-3xl font-semibold tracking-tight">{user.name}</h1>
               <div className="text-muted">{user.email}</div>
@@ -87,9 +102,9 @@ export default function ProfilePage() {
                   <PlanIcon plan={user.plan} />
                   <div>
                     <div className="text-xs uppercase tracking-wider text-subtle">
-                      Current plan
+                      Current tier
                     </div>
-                    <div className="text-lg font-medium capitalize">{user.plan}</div>
+                    <div className="text-lg font-medium">{user.tier}</div>
                   </div>
                 </div>
                 <Link
@@ -104,7 +119,7 @@ export default function ProfilePage() {
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted">Generations used</span>
                   <span className="font-medium">
-                    {user.generationsUsed} / {user.plan === "ultra" ? "∞" : limit}
+                    {user.generationsUsed} / {user.limit == null ? "∞" : user.limit}
                   </span>
                 </div>
                 <div className="mt-2 h-2 rounded-full bg-elevated overflow-hidden">
@@ -164,7 +179,7 @@ export default function ProfilePage() {
   );
 }
 
-function PlanIcon({ plan }: { plan: "free" | "pro" | "ultra" }) {
+function PlanIcon({ plan }: { plan: Plan }) {
   if (plan === "ultra")
     return <Crown className="w-5 h-5 text-gold drop-shadow-[0_0_10px_rgba(240,200,97,0.7)]" />;
   if (plan === "pro")

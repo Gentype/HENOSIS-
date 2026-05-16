@@ -224,7 +224,7 @@ export function PromptBox({
         <div className="ml-auto flex items-center gap-2">
           {user && (
             <span className="text-xs text-subtle hidden sm:inline">
-              {user.generationsUsed}/{user.plan === "ultra" ? "∞" : user.plan === "pro" ? 50 : 3} used
+              {user.generationsUsed}/{user.limit == null ? "∞" : user.limit} used · {user.tier}
             </span>
           )}
           <button

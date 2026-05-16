@@ -47,16 +47,27 @@ export interface Project {
   history: ChatMessage[];
 }
 
+export type Plan = "free" | "pro" | "ultra";
+
+/** What the frontend sees — projected from the server-side UserRecord. */
 export interface User {
+  id: string;
   email: string;
   name: string;
-  plan: "free" | "pro" | "ultra";
+  image: string | null;
+  plan: Plan;
+  /** Human-readable tier label shown in the UI. */
+  tier: "Bronze" | "Silver" | "Gold";
   generationsUsed: number;
+  /** Total cap for this plan, or null for unlimited. */
+  limit: number | null;
+  /** Remaining generations, or null for unlimited. */
+  remaining: number | null;
   joinedAt: number;
 }
 
-export const PLAN_LIMITS: Record<User["plan"], number> = {
+export const PLAN_LIMITS: Record<Plan, number> = {
   free: 3,
   pro: 50,
-  ultra: 999,
+  ultra: Number.POSITIVE_INFINITY,
 };

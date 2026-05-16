@@ -2,7 +2,11 @@
 
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
-import type { Project, User, ChatMessage } from "./types";
+import {
+  signIn as nextSignIn,
+  signOut as nextSignOut,
+} from "next-auth/react";
+import type { ChatMessage, Plan, Project, User } from "./types";
 import { DEFAULT_MODEL } from "./examples";
 
 interface DraftState {
@@ -105,39 +109,63 @@ export const useProjects = create<ProjectsState>()(
 
 interface UserState {
   user: User | null;
-  signIn: (email: string, name?: string) => void;
-  signOut: () => void;
-  setPlan: (plan: User["plan"]) => void;
+  /** True until the first /api/me call resolves. */
+  loading: boolean;
+  /** Open the Google sign-in flow. Resolves once the redirect starts. */
+  signIn: () => Promise<void>;
+  /** Sign out + clear local user state. */
+  signOut: () => Promise<void>;
+  /** Change the user's plan on the server and refresh local state. */
+  setPlan: (plan: Plan) => Promise<void>;
+  /** Optimistic bump of the local usage counter after a successful generation. */
   incrementUsage: () => void;
+  /** Force-refetch /api/me. */
+  refetch: () => Promise<void>;
+  /** Internal: replace the user (used by the hydrator). */
+  _setUser: (u: User | null) => void;
+  /** Internal: set loading flag. */
+  _setLoading: (l: boolean) => void;
 }
 
-export const useUser = create<UserState>()(
-  persist(
-    (set) => ({
-      user: null,
-      signIn: (email, name) =>
-        set({
-          user: {
-            email,
-            name: name ?? email.split("@")[0],
-            plan: "free",
-            generationsUsed: 0,
-            joinedAt: Date.now(),
-          },
-        }),
-      signOut: () => set({ user: null }),
-      setPlan: (plan) =>
-        set((s) => (s.user ? { user: { ...s.user, plan } } : s)),
-      incrementUsage: () =>
-        set((s) =>
-          s.user
-            ? { user: { ...s.user, generationsUsed: s.user.generationsUsed + 1 } }
-            : s,
-        ),
-    }),
-    {
-      name: "henosis:user",
-      storage: createJSONStorage(() => localStorage),
-    },
-  ),
-);
+export const useUser = create<UserState>()((set, get) => ({
+  user: null,
+  loading: true,
+  signIn: async () => {
+    await nextSignIn("google", { callbackUrl: "/projects" });
+  },
+  signOut: async () => {
+    set({ user: null });
+    await nextSignOut({ callbackUrl: "/" });
+  },
+  setPlan: async (plan) => {
+    const res = await fetch("/api/me/tier", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ plan }),
+    });
+    if (!res.ok) return;
+    const data = (await res.json()) as { user: User };
+    set({ user: data.user });
+  },
+  incrementUsage: () => {
+    const u = get().user;
+    if (!u) return;
+    const used = u.generationsUsed + 1;
+    const remaining = u.limit == null ? null : Math.max(0, u.limit - used);
+    set({ user: { ...u, generationsUsed: used, remaining } });
+  },
+  refetch: async () => {
+    try {
+      const res = await fetch("/api/me");
+      if (!res.ok) throw new Error(`${res.status}`);
+      const data = (await res.json()) as { user: User | null };
+      set({ user: data.user ?? null });
+    } catch {
+      set({ user: null });
+    } finally {
+      set({ loading: false });
+    }
+  },
+  _setUser: (user) => set({ user }),
+  _setLoading: (loading) => set({ loading }),
+}));

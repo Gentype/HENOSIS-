@@ -1,7 +1,14 @@
 import { NextRequest } from "next/server";
+import { auth } from "@/lib/auth";
 import { generateSiteStream } from "@/lib/generate";
 import { DEFAULT_MODEL } from "@/lib/examples";
 import type { GenerateResultFile } from "@/lib/types";
+import {
+  PLAN_LIMITS,
+  incrementUsage,
+  quotaRemaining,
+  userFromSession,
+} from "@/lib/user-store";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -35,6 +42,26 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  const session = await auth();
+  const user = await userFromSession(session);
+  if (!user) {
+    return Response.json(
+      { error: "Sign in to generate sites.", code: "unauthenticated" },
+      { status: 401 },
+    );
+  }
+
+  if (quotaRemaining(user) <= 0) {
+    const limit = PLAN_LIMITS[user.plan];
+    return Response.json(
+      {
+        error: `You've used all ${limit} generations on your current plan. Upgrade at /pricing.`,
+        code: "quota_exceeded",
+      },
+      { status: 402 },
+    );
+  }
+
   const encoder = new TextEncoder();
   const model = body.model || DEFAULT_MODEL;
 
@@ -59,6 +86,9 @@ export async function POST(req: NextRequest) {
             },
           },
         );
+
+        // Only count successful generations against the user's quota.
+        await incrementUsage(user.id);
 
         send({ type: "done", result });
       } catch (err) {
