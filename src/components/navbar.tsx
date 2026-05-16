@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { Logo } from "./logo";
 import { cn } from "@/lib/utils";
 import { useUser } from "@/lib/store";
@@ -82,10 +83,16 @@ export function Navbar({ className, variant = "marketing" }: NavbarProps) {
                 href="/profile"
                 className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-border bg-surface/60 hover:bg-surface text-sm transition-colors"
               >
-                <span className="w-6 h-6 rounded-full bg-accent text-black grid place-items-center text-[11px] font-semibold uppercase">
-                  {user.name?.[0] ?? "U"}
-                </span>
+                <Avatar user={user} size={24} />
                 <span className="hidden sm:inline text-foreground">{user.name}</span>
+                <span
+                  className={cn(
+                    "hidden md:inline text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded border",
+                    tierBadgeClass(user.plan),
+                  )}
+                >
+                  {user.tier}
+                </span>
               </Link>
             ) : (
               <>
@@ -147,10 +154,16 @@ export function Navbar({ className, variant = "marketing" }: NavbarProps) {
                 onClick={() => setMenuOpen(false)}
                 className="px-4 py-3 rounded-xl text-sm text-foreground hover:bg-white/5 transition-colors flex items-center gap-2"
               >
-                <span className="w-6 h-6 rounded-full bg-accent text-black grid place-items-center text-[11px] font-semibold uppercase">
-                  {user.name?.[0] ?? "U"}
-                </span>
+                <Avatar user={user} size={24} />
                 <span>{user.name ?? "Profile"}</span>
+                <span
+                  className={cn(
+                    "ml-auto text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded border",
+                    tierBadgeClass(user.plan),
+                  )}
+                >
+                  {user.tier}
+                </span>
               </Link>
             ) : (
               <>
@@ -175,4 +188,40 @@ export function Navbar({ className, variant = "marketing" }: NavbarProps) {
       </div>
     </>
   );
+}
+
+function Avatar({
+  user,
+  size,
+}: {
+  user: { image: string | null; name: string };
+  size: number;
+}) {
+  if (user.image) {
+    return (
+      <Image
+        src={user.image}
+        alt={user.name}
+        width={size}
+        height={size}
+        className="rounded-full border border-border object-cover"
+        style={{ width: size, height: size }}
+        unoptimized
+      />
+    );
+  }
+  return (
+    <span
+      className="rounded-full bg-accent text-black grid place-items-center text-[11px] font-semibold uppercase"
+      style={{ width: size, height: size }}
+    >
+      {user.name?.[0] ?? "U"}
+    </span>
+  );
+}
+
+function tierBadgeClass(plan: "free" | "pro" | "ultra") {
+  if (plan === "ultra") return "bg-gold/10 text-gold border-gold/40";
+  if (plan === "pro") return "bg-silver/10 text-silver border-silver/40";
+  return "bg-bronze/10 text-bronze border-bronze/40";
 }

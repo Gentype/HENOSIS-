@@ -5,8 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Logo } from "@/components/logo";
 import { useUser } from "@/lib/store";
-import { Loader2, Mail, ArrowRight } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { Loader2 } from "lucide-react";
 
 export default function AuthPage() {
   return (
@@ -21,28 +20,26 @@ function AuthInner() {
   const sp = useSearchParams();
   const initialMode = sp.get("mode") === "signup" ? "signup" : "signin";
   const [mode, setMode] = useState<"signin" | "signup">(initialMode);
-  const [email, setEmail] = useState("");
-  const [name, setName] = useState("");
-  const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const signIn = useUser((s) => s.signIn);
+  const user = useUser((s) => s.user);
 
   useEffect(() => setMode(initialMode), [initialMode]);
 
-  async function doSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!email.trim()) return;
-    setSubmitting(true);
-    await new Promise((r) => setTimeout(r, 600));
-    signIn(email.trim(), name.trim() || undefined);
-    router.push("/projects");
-  }
+  // If already signed in, bounce to /projects so /auth never strands a logged-in user.
+  useEffect(() => {
+    if (user) router.replace("/projects");
+  }, [user, router]);
 
   async function doGoogle() {
+    if (submitting) return;
     setSubmitting(true);
-    await new Promise((r) => setTimeout(r, 800));
-    signIn("you@gmail.com", "Google User");
-    router.push("/projects");
+    try {
+      await signIn();
+    } finally {
+      // signIn redirects, but if the redirect is cancelled we still want the button usable.
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -60,8 +57,8 @@ function AuthInner() {
             </h1>
             <p className="mt-2 text-muted text-sm">
               {mode === "signin"
-                ? "Sign in to continue building."
-                : "Start with 3 free generations. No credit card needed."}
+                ? "Sign in with Google to continue building."
+                : "One click in. Start with 3 free generations on the Bronze tier — upgrade anytime."}
             </p>
 
             <button
@@ -70,57 +67,13 @@ function AuthInner() {
               disabled={submitting}
               className="mt-8 w-full inline-flex items-center justify-center gap-3 rounded-xl border border-border bg-surface hover:bg-elevated transition-colors py-3 text-sm font-medium disabled:opacity-60"
             >
-              <GoogleIcon />
-              Continue with Google
-            </button>
-
-            <div className="my-6 flex items-center gap-3">
-              <div className="h-px flex-1 bg-border" />
-              <span className="text-xs text-subtle">or</span>
-              <div className="h-px flex-1 bg-border" />
-            </div>
-
-            <form onSubmit={doSubmit} className="space-y-3">
-              {mode === "signup" && (
-                <Field
-                  label="Full name"
-                  type="text"
-                  value={name}
-                  onChange={setName}
-                  placeholder="Ada Lovelace"
-                />
+              {submitting ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <GoogleIcon />
               )}
-              <Field
-                label="Email"
-                type="email"
-                value={email}
-                onChange={setEmail}
-                placeholder="you@studio.com"
-                required
-              />
-              <Field
-                label="Password"
-                type="password"
-                value={password}
-                onChange={setPassword}
-                placeholder="••••••••"
-              />
-
-              <button
-                type="submit"
-                disabled={submitting || !email}
-                className="w-full inline-flex items-center justify-center gap-2 rounded-xl btn-generate py-3 text-sm font-semibold disabled:opacity-50"
-              >
-                {submitting ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <>
-                    {mode === "signin" ? "Sign in" : "Create account"}
-                    <ArrowRight className="w-4 h-4" />
-                  </>
-                )}
-              </button>
-            </form>
+              {submitting ? "Opening Google…" : "Continue with Google"}
+            </button>
 
             <p className="mt-6 text-sm text-muted text-center">
               {mode === "signin" ? "New here?" : "Already have an account?"}{" "}
@@ -131,6 +84,9 @@ function AuthInner() {
               >
                 {mode === "signin" ? "Create an account" : "Sign in"}
               </button>
+            </p>
+            <p className="mt-3 text-xs text-subtle text-center">
+              Either way, the Google flow handles both new and returning accounts.
             </p>
           </div>
         </div>
@@ -163,46 +119,6 @@ function AuthInner() {
         </div>
       </div>
     </main>
-  );
-}
-
-function Field({
-  label,
-  type,
-  value,
-  onChange,
-  placeholder,
-  required,
-}: {
-  label: string;
-  type: string;
-  value: string;
-  onChange: (v: string) => void;
-  placeholder?: string;
-  required?: boolean;
-}) {
-  return (
-    <label className="block">
-      <span className="block text-xs uppercase tracking-wider text-subtle mb-1.5">
-        {label}
-      </span>
-      <div className="relative">
-        {type === "email" && (
-          <Mail className="w-4 h-4 text-subtle absolute left-3.5 top-1/2 -translate-y-1/2" />
-        )}
-        <input
-          type={type}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={placeholder}
-          required={required}
-          className={cn(
-            "w-full rounded-xl border border-border bg-surface focus:border-accent/60 outline-none px-3.5 py-3 text-sm placeholder:text-subtle transition-colors",
-            type === "email" && "pl-10",
-          )}
-        />
-      </div>
-    </label>
   );
 }
 

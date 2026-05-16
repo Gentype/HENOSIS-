@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import { Navbar } from "@/components/navbar";
 import { Footer } from "@/components/footer";
-import { Check, Sparkles, Crown, Shield } from "lucide-react";
+import { Check, Sparkles, Crown, Loader2, Shield } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUser } from "@/lib/store";
 import { useRouter } from "next/navigation";
@@ -90,24 +91,24 @@ export default function PricingPage() {
   const router = useRouter();
   const user = useUser((s) => s.user);
   const setPlan = useUser((s) => s.setPlan);
-  const signIn = useUser((s) => s.signIn);
+  const [pending, setPending] = useState<Tier["id"] | null>(null);
 
-  function choose(tier: Tier["id"]) {
+  async function choose(tier: Tier["id"]) {
     if (!user) {
       router.push("/auth?mode=signup");
       return;
     }
-    if (tier === "free") {
-      setPlan("free");
-    } else {
-      // Simulated checkout
-      setPlan(tier);
+    if (pending) return;
+    setPending(tier);
+    try {
+      // Simulated checkout — in production this would hit Stripe, then a
+      // webhook would call setPlan server-side.
+      await setPlan(tier);
+      router.push("/profile");
+    } finally {
+      setPending(null);
     }
-    router.push("/profile");
   }
-
-  // Demo helper: if no user, show CTA to create one
-  void signIn;
 
   return (
     <>
@@ -129,7 +130,13 @@ export default function PricingPage() {
         <section className="mx-auto max-w-7xl px-5 lg:px-8 pb-20">
           <div className="grid gap-6 md:grid-cols-3">
             {TIERS.map((t) => (
-              <TierCard key={t.id} tier={t} onChoose={() => choose(t.id)} currentPlan={user?.plan ?? null} />
+              <TierCard
+                key={t.id}
+                tier={t}
+                onChoose={() => choose(t.id)}
+                currentPlan={user?.plan ?? null}
+                pending={pending === t.id}
+              />
             ))}
           </div>
 
@@ -156,10 +163,12 @@ function TierCard({
   tier,
   onChoose,
   currentPlan,
+  pending,
 }: {
   tier: Tier;
   onChoose: () => void;
   currentPlan: "free" | "pro" | "ultra" | null;
+  pending: boolean;
 }) {
   const Icon = tier.icon;
   const isCurrent = currentPlan === tier.id;
@@ -209,18 +218,29 @@ function TierCard({
       <button
         type="button"
         onClick={onChoose}
-        disabled={isCurrent}
+        disabled={isCurrent || pending}
         className={cn(
-          "mt-8 inline-flex items-center justify-center rounded-xl py-3 text-sm font-semibold transition-colors",
+          "mt-8 inline-flex items-center justify-center gap-2 rounded-xl py-3 text-sm font-semibold transition-colors",
           tier.id === "ultra"
             ? "bg-gold/15 text-gold border border-gold/60 hover:bg-gold/25"
             : tier.id === "pro"
               ? "bg-silver/15 text-silver border border-silver/60 hover:bg-silver/25"
               : "bg-bronze/15 text-bronze border border-bronze/60 hover:bg-bronze/25",
-          isCurrent && "opacity-60 cursor-default",
+          (isCurrent || pending) && "opacity-60 cursor-default",
         )}
       >
-        {isCurrent ? "Current plan" : tier.id === "free" ? "Start free" : `Upgrade to ${tier.name}`}
+        {pending ? (
+          <>
+            <Loader2 className="w-4 h-4 animate-spin" />
+            Switching…
+          </>
+        ) : isCurrent ? (
+          "Current plan"
+        ) : tier.id === "free" ? (
+          "Start free"
+        ) : (
+          `Upgrade to ${tier.name}`
+        )}
       </button>
     </div>
   );
