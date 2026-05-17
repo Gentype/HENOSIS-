@@ -1,8 +1,8 @@
 import { NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
-import { generateSiteStream } from "@/lib/generate";
+import { generateSiteStream, type ComplexityContext } from "@/lib/generate";
 import { DEFAULT_MODEL } from "@/lib/examples";
-import type { GenerateResultFile } from "@/lib/types";
+import type { ComplexityAnalysis, GenerateResultFile } from "@/lib/types";
 import {
   PLAN_LIMITS,
   incrementUsage,
@@ -17,6 +17,18 @@ interface Body {
   prompt: string;
   model?: string;
   priorFiles?: GenerateResultFile[];
+  /**
+   * Optional output of the Quality Check classifier. When present, it's
+   * injected into the user message as a `<complexity>` block so the Site
+   * Architect sizes its build accordingly.
+   */
+  analysis?: ComplexityAnalysis;
+  /**
+   * Manual override (2–10) from a Silver/Gold user. Coerces the analysis
+   * score / stack to match. Ignored for free users (the route doesn't
+   * gate it here — the prompt-box does — but we still clamp and clean.).
+   */
+  complexityOverride?: number;
 }
 
 export async function POST(req: NextRequest) {
@@ -65,6 +77,12 @@ export async function POST(req: NextRequest) {
   const encoder = new TextEncoder();
   const model = body.model || DEFAULT_MODEL;
 
+  // Resolve the complexity context: start from the analyzer's result, then
+  // let a Silver/Gold-tier manual override coerce score + stack. Free users
+  // can still send `analysis` but they don't get the override slider in the
+  // UI, so `complexityOverride` is normally absent for them.
+  const complexity = resolveComplexity(body);
+
   const stream = new ReadableStream({
     async start(controller) {
       function send(event: object) {
@@ -74,7 +92,18 @@ export async function POST(req: NextRequest) {
       }
 
       try {
-        send({ type: "start", model });
+        send({
+          type: "start",
+          model,
+          complexity: complexity
+            ? {
+                score: complexity.score,
+                stack: complexity.stack,
+                tier: complexity.tier,
+                userOverride: complexity.userOverride ?? false,
+              }
+            : undefined,
+        });
 
         const result = await generateSiteStream(
           prompt,
@@ -85,6 +114,8 @@ export async function POST(req: NextRequest) {
               send({ type: "chunk", delta });
             },
           },
+          undefined,
+          complexity,
         );
 
         // Only count successful generations against the user's quota.
@@ -107,4 +138,47 @@ export async function POST(req: NextRequest) {
       "X-Accel-Buffering": "no",
     },
   });
+}
+
+/**
+ * Merge analyzer output + optional user override into a single
+ * {@link ComplexityContext} for the Site Architect. Returns `undefined`
+ * when neither was provided (callers fall back to the legacy "no
+ * complexity" path).
+ */
+function resolveComplexity(body: Body): ComplexityContext | undefined {
+  const analysis = body.analysis;
+  const override = body.complexityOverride;
+
+  if (!analysis && (override == null || !Number.isFinite(override))) {
+    return undefined;
+  }
+
+  let score = analysis?.score ?? 5;
+  let stack = analysis?.stack ?? "html";
+  let tier = analysis?.tier;
+  let userOverride = false;
+  if (override != null && Number.isFinite(override)) {
+    score = Math.max(2, Math.min(10, Math.round(override)));
+    stack =
+      score <= 4 ? "html" : score <= 6 ? "js-modules" : "typescript";
+    // Drop stale tier label when the user override changes the score band.
+    if (
+      analysis &&
+      analysis.score !== score &&
+      !analysis.userOverride
+    ) {
+      tier = undefined;
+    }
+    userOverride = true;
+  }
+
+  return {
+    score,
+    stack,
+    tier,
+    recommendedPages: analysis?.recommendedPages,
+    reasoning: analysis?.reasoning,
+    userOverride,
+  };
 }

@@ -109,7 +109,18 @@ export default function ProjectsPage() {
   );
 }
 
-function StatusBadge({ status }: { status: "generating" | "done" | "error" }) {
+function StatusBadge({
+  status,
+}: {
+  status: "analyzing" | "generating" | "done" | "error";
+}) {
+  if (status === "analyzing")
+    return (
+      <span className="inline-flex items-center gap-1.5 text-accent">
+        <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
+        Quality Check
+      </span>
+    );
   if (status === "generating")
     return (
       <span className="inline-flex items-center gap-1.5 text-accent">
