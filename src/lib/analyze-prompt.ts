@@ -82,29 +82,64 @@ COMPLEXITY RUBRIC (Henosis spec)
   Stack: typescript. Pages: 6+.
 
 ────────────────────────────────────────────────────────────────────────────
-DECISION RULES
+DECISION RULES — be CONSERVATIVE. When in doubt, score LOWER.
 ────────────────────────────────────────────────────────────────────────────
 
-1. If the prompt is one or two words ("cafe", "shop"), default to 4 unless
-   it implies a small landing (then 3) — never go higher than 5 from a
-   one-word prompt.
-2. If the prompt names a real multi-page product to clone (YouTube,
-   Twitter/X, Spotify, Notion, Linear, Figma) → at minimum 7.
-3. If the prompt explicitly says "lots of pages", "dashboard", "with
-   pricing + features + FAQ + blog" → at least 8.
-4. If the user explicitly says "tiny", "small", "simple", "single page",
-   "one page" → cap at 4.
-5. If the user names a SaaS / agency / restaurant / portfolio with no
-   extra detail → 6 (standard multi-page).
-6. tier label examples: "Static badge", "Coming-soon", "Single landing",
-   "Animated landing", "Two-page site", "Multi-page clone", "Full product",
-   "Production SaaS", "Custom system".
+The default scoring bias is that most prompts are simple landings. Don't
+inflate the score just because the prompt uses adjectives like "premium",
+"luxury", "modern", "professional", "beautiful", or "stunning" — those say
+nothing about size or page count.
+
+1. ONE- or TWO-WORD prompts ("cafe", "shop", "restaurant", "portfolio",
+   "ресторан") → score 4 (Content landing, html). NEVER score higher than
+   4 for a one/two-word prompt, even if it names a luxury business.
+
+2. If the prompt names a REAL, named, multi-page product to clone — and
+   the user actually says "clone" / "like X" / "create me X" referring to
+   one of these:
+     YouTube, Twitter/X, Spotify, Notion, Linear, Figma, Netflix, TikTok,
+     Twitch, Vimeo, Instagram, Reddit, Discord, Slack, Airbnb, Amazon,
+     Uber, Trello, Asana
+   → minimum 7. NOT 8+ unless the user explicitly asks for dashboards or
+   admin panels.
+
+3. The prompt EXPLICITLY enumerates many pages ("with home, pricing,
+   features, FAQ, blog, contact", "dashboard with charts and tables",
+   "full SaaS with auth, billing, and admin"), or explicitly says
+   "много страниц" / "lots of pages" / "multi-page" / "with dashboard"
+   → 8 or 9.
+
+4. Words that CAP the score at 4: "tiny", "small", "simple", "minimal",
+   "single page", "one page", "landing only", "лендинг", "маленький",
+   "простой".
+
+5. Single-business landing prompts (cafe, restaurant, gym, bakery,
+   portfolio, agency, hotel, barbershop, dentist, photographer, lawyer)
+   WITH a short description → 4. Only score higher if the user asks for:
+     - real animations / scroll reveals / mobile menu → 5,
+     - a meaningful second page like Pricing or Menu → 6,
+     - 3+ explicit pages or a product-clone feel → 7.
+
+6. tier label examples: "Static badge", "Coming-soon", "Simple landing",
+   "Content landing", "Animated landing", "Two-page site",
+   "Multi-page clone", "Full product", "Production SaaS", "Custom system".
+
 7. recommendedPages always starts with "Home". Length must roughly match
    the score (see rubric).
+
 8. stack:
    - score ≤ 4 → "html"
    - score 5–6 → "js-modules"
    - score ≥ 7 → "typescript"
+
+9. SCORING SANITY CHECK before you output:
+   - Is the prompt ≤ 8 words AND does not name a real product clone?
+     → Score must be ≤ 4.
+   - Is the user asking for "a website for my [single business]" with no
+     page list and no animations? → Score is 4.
+   - Did you score ≥ 7? You must be able to point to a concrete trigger:
+     a named product clone OR an explicit list of 3+ pages OR an explicit
+     mention of dashboards / SaaS flows. If you can't, drop to 5 or 6.
 
 ────────────────────────────────────────────────────────────────────────────
 LANGUAGE
@@ -300,21 +335,18 @@ function defaultReasoning(score: number): string {
 }
 
 function fallbackAnalysis(prompt: string): ComplexityAnalysis {
-  // Very simple keyword heuristic for the fallback path so the UI still
-  // shows a believable score when the model API is unreachable.
+  // Conservative keyword heuristic for the fallback path so the UI still
+  // shows a believable score when the model API is unreachable. The bias
+  // is to UNDERSCORE rather than overscore — most prompts are simple
+  // landings.
   const p = prompt.toLowerCase();
+
+  // Explicit "small / simple" markers — cap at 3.
   if (
-    /(youtube|spotify|twitter|notion|linear|figma|netflix|dashboard|crm)/.test(p)
+    /(tiny|small|simple|minimal|single page|one page|coming soon|404|landing only|маленьк|простой|лендинг)/.test(
+      p,
+    )
   ) {
-    return {
-      score: 7,
-      stack: "typescript",
-      tier: "Multi-page clone",
-      reasoning: "Names a multi-page product — defaulted to 7/10.",
-      recommendedPages: ["Home", "Browse", "Detail", "Search", "Library"],
-    };
-  }
-  if (/(tiny|small|simple|single page|one page|coming soon|404)/.test(p)) {
     return {
       score: 3,
       stack: "html",
@@ -323,6 +355,44 @@ function fallbackAnalysis(prompt: string): ComplexityAnalysis {
       recommendedPages: ["Home"],
     };
   }
+
+  // Explicit named product clones — 7/10.
+  if (
+    /(youtube|youtub|ютуб|spotify|twitter\b|twitter\/x|netflix|tiktok|twitch|vimeo|instagram|reddit|notion|linear|figma|slack|airbnb|amazon|trello|asana)/.test(
+      p,
+    )
+  ) {
+    return {
+      score: 7,
+      stack: "typescript",
+      tier: "Multi-page clone",
+      reasoning: "Names a real multi-page product — defaulted to 7/10.",
+      recommendedPages: ["Home", "Browse", "Detail", "Search", "Library"],
+    };
+  }
+
+  // Explicit "dashboard / many pages / SaaS flow" markers — 8/10.
+  if (
+    /(dashboard|admin panel|saas with|многo страниц|with pricing.*features|auth flow|onboarding flow|billing flow)/.test(
+      p,
+    )
+  ) {
+    return {
+      score: 8,
+      stack: "typescript",
+      tier: "Full product",
+      reasoning: "Prompt asks for dashboards / multi-flow product — 8/10.",
+      recommendedPages: [
+        "Home",
+        "Dashboard",
+        "Settings",
+        "Billing",
+        "Account",
+      ],
+    };
+  }
+
+  // Default: most short prompts are simple landings.
   return {
     score: 4,
     stack: "html",

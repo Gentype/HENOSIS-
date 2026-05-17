@@ -106,8 +106,13 @@ function tierFromScore(score: number): string {
 
 const OPENROUTER_API = "https://openrouter.ai/api/v1/chat/completions";
 
-/** Soft cap on combined few-shot example character length. */
-const FEW_SHOT_CHAR_BUDGET = 8000;
+/**
+ * Soft cap on combined few-shot example character length. Bumped to 30k so
+ * the typescript multi-file example (Stream, ~20k chars) fits — without it
+ * the picker would silently drop the TS example and the model would see
+ * only the small HTML examples, then copy that shape.
+ */
+const FEW_SHOT_CHAR_BUDGET = 30000;
 
 interface OpenRouterMessage {
   role: "system" | "user" | "assistant";
@@ -141,8 +146,17 @@ export interface BuildMessagesArgs {
   systemPrompt: string;
   /** Optional pool of few-shot examples to choose from. */
   examples?: BuiltInExample[];
-  /** Optional explicit picker; defaults to the keyword/rotation picker. */
-  pickExamples?: (prompt: string, max: number) => BuiltInExample[];
+  /**
+   * Optional explicit picker; defaults to the keyword/complexity picker.
+   * The `complexityScore` is forwarded so the picker can bias toward an
+   * example whose output size matches the target — without it, a 7/10
+   * prompt would see only HTML examples and emit single-page HTML.
+   */
+  pickExamples?: (
+    prompt: string,
+    max: number,
+    complexityScore?: number,
+  ) => BuiltInExample[];
   /** Max examples to inject (capped by FEW_SHOT_CHAR_BUDGET as well). */
   maxExamples?: number;
   /**
@@ -192,10 +206,16 @@ export function buildMessagesForGeneration(
 
   // 2. Few-shot examples — skipped when the user is iterating on existing
   //    files (priorFiles takes priority as the "context" for the model) or
-  //    when the example pool is empty.
+  //    when the example pool is empty. The picker is told about the
+  //    target complexity so a 7/10 prompt gets the TS multi-file example
+  //    rather than a 3/10 coffee-shop landing.
   let pickedIds: string[] = [];
   if (!priorFiles?.length && examples.length > 0 && maxExamples > 0) {
-    const picked = pickExamples(currentUserPrompt, maxExamples);
+    const picked = pickExamples(
+      currentUserPrompt,
+      maxExamples,
+      complexity?.score,
+    );
     const budgeted = applyCharBudget(picked, FEW_SHOT_CHAR_BUDGET);
     pickedIds = budgeted.map((e) => e.id);
     for (const ex of budgeted) {
