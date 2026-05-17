@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/components/providers";
+import { auth } from "@/lib/auth";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -36,11 +37,18 @@ export const viewport: Viewport = {
   themeColor: "#000000",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // Resolve the session server-side once per request and hand it to
+  // SessionProvider as `initialSession`. Without this, `useSession()` starts
+  // out "loading" → "unauthenticated" on the first client render even when a
+  // valid cookie is present, causing the user to see "Not signed in" for a
+  // tick before the client refetch resolves. Passing the SSR session removes
+  // the race entirely.
+  const session = await auth();
   return (
     <html
       lang="en"
@@ -48,7 +56,7 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <body className="min-h-full flex flex-col bg-black text-foreground">
-        <Providers>{children}</Providers>
+        <Providers initialSession={session}>{children}</Providers>
       </body>
     </html>
   );

@@ -75,10 +75,14 @@ export function PromptBox({
       textareaRef.current?.focus();
       return;
     }
-    setSubmitting(true);
+    // Persist the draft FIRST so it survives a redirect to /auth and lands
+    // back in the textarea after the user signs in.
     setDraftPrompt(prompt);
 
     if (onSubmitFollowUp) {
+      // Follow-ups happen inside /generate, which already requires auth to
+      // reach. Don't double-check here — let the API enforce.
+      setSubmitting(true);
       try {
         await onSubmitFollowUp(prompt);
         setValue("");
@@ -88,6 +92,15 @@ export function PromptBox({
       return;
     }
 
+    // Anonymous users: bounce to /auth with the prompt safely stored in the
+    // draft store. After sign-in, /auth redirects back to "/" and the
+    // textarea is repopulated from the draft.
+    if (!user) {
+      router.push("/auth?then=generate");
+      return;
+    }
+
+    setSubmitting(true);
     const id = `p_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
     upsertProject({
       id,
@@ -241,6 +254,12 @@ export function PromptBox({
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
                 <span>Starting…</span>
+              </>
+            ) : !user && !onSubmitFollowUp ? (
+              <>
+                <Sparkles className="w-4 h-4" />
+                <span>Sign in to generate</span>
+                <ArrowUp className="w-4 h-4" />
               </>
             ) : (
               <>

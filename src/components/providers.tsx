@@ -2,17 +2,26 @@
 
 import { SessionProvider, useSession } from "next-auth/react";
 import { useEffect } from "react";
+import type { Session } from "next-auth";
 import { useUser } from "@/lib/store";
 
 /**
  * App-wide providers:
- *  - `SessionProvider` so client components can read the NextAuth session.
+ *  - `SessionProvider` receives the SSR-resolved session so the first client
+ *    render already knows whether the user is signed in (no "Not signed in"
+ *    flash between hydration and the first `/api/auth/session` fetch).
  *  - `UserHydrator` keeps the `useUser` zustand store in sync with the
  *    server-side user record (/api/me).
  */
-export function Providers({ children }: { children: React.ReactNode }) {
+export function Providers({
+  children,
+  initialSession,
+}: {
+  children: React.ReactNode;
+  initialSession: Session | null;
+}) {
   return (
-    <SessionProvider refetchOnWindowFocus={false}>
+    <SessionProvider session={initialSession} refetchOnWindowFocus={false}>
       <UserHydrator />
       {children}
     </SessionProvider>
