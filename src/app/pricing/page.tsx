@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { useSession } from "next-auth/react";
 import { Navbar } from "@/components/navbar";
 import { Footer } from "@/components/footer";
 import { Check, Sparkles, Crown, Loader2, Shield } from "lucide-react";
@@ -91,10 +92,21 @@ export default function PricingPage() {
   const router = useRouter();
   const user = useUser((s) => s.user);
   const setPlan = useUser((s) => s.setPlan);
+  // Use the NextAuth session as the ground truth for "is the user signed
+  // in?" — `useUser` only hydrates after /api/me resolves, so gating the
+  // upgrade button on it would bounce a freshly-signed-in user back to
+  // /auth?mode=signup, which is the "site keeps asking me to register"
+  // bug. Session is SSR-resolved so it's correct on the first render.
+  const { status: sessionStatus } = useSession();
+  const isAuthenticated = sessionStatus === "authenticated";
+  const isSessionLoading = sessionStatus === "loading";
   const [pending, setPending] = useState<Tier["id"] | null>(null);
 
   async function choose(tier: Tier["id"]) {
-    if (!user) {
+    // Don't bounce the user anywhere while the session is still resolving;
+    // wait one tick instead of accidentally treating them as anonymous.
+    if (isSessionLoading) return;
+    if (!isAuthenticated) {
       router.push("/auth?mode=signup");
       return;
     }
