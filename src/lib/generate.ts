@@ -4,22 +4,43 @@
  * OpenRouter + Prompt Caching — keeps the SYSTEM_PROMPT cached so subsequent
  * generations are ~90% cheaper on input tokens.
  *
+ * Pipeline (centralised in `buildMessagesForGeneration`):
+ *
+ *     user prompt
+ *       → [ system (cached)
+ *           + 1–2 BUILT_IN_EXAMPLES (when applicable)
+ *           + optional priorFiles context (follow-up edits)
+ *           + user prompt ]
+ *       → OpenRouter chat completion (json_object response_format)
+ *       → parseResult (graceful fallback for partial / fenced output)
+ *       → GenerateResult
+ *
  * Two entry points:
- *   - generateSite(prompt, model)         → non-streaming, returns full result
- *   - generateSiteStream(prompt, on*, …)  → streams JSON content into the UI
+ *   - generateSite(prompt, model, priorFiles?, override?)         — non-streaming
+ *   - generateSiteStream(prompt, model, priorFiles, cbs, override?) — streaming
  */
 import { SYSTEM_PROMPT } from "./system-prompt";
+import {
+  BUILT_IN_EXAMPLES,
+  pickRelevantExamples,
+  type BuiltInExample,
+} from "./builtin-examples";
 import type { GenerateResult, GenerateResultFile } from "./types";
 
 /**
  * Allow callers to swap the cached system prompt (e.g. EDIT_PROMPT, REMIX_PROMPT)
- * while keeping the rest of the OpenRouter plumbing identical.
+ * while keeping the rest of the OpenRouter plumbing identical. When an override
+ * is set, few-shot examples are *not* injected — the override is its own
+ * specialised system message and examples would be off-topic.
  */
 export interface SystemOverride {
   systemText?: string;
 }
 
 const OPENROUTER_API = "https://openrouter.ai/api/v1/chat/completions";
+
+/** Soft cap on combined few-shot example character length. */
+const FEW_SHOT_CHAR_BUDGET = 8000;
 
 interface OpenRouterMessage {
   role: "system" | "user" | "assistant";
@@ -40,39 +61,143 @@ interface BuildRequestArgs {
   systemText?: string;
 }
 
-function buildBody({ prompt, model, priorFiles, stream, systemText }: BuildRequestArgs): string {
-  // Cached system block. Anthropic / OpenRouter prompt caching applies.
-  const systemMsg: OpenRouterMessage = {
+// ---------------------------------------------------------------------------
+// buildMessagesForGeneration — the one place where messages get assembled.
+//
+// Any new caller (a new API route, a server action, etc.) should go through
+// this function rather than constructing OpenRouter messages by hand.
+// ---------------------------------------------------------------------------
+
+export interface BuildMessagesArgs {
+  /** System prompt text to pin in the cached `system` block. */
+  systemPrompt: string;
+  /** Optional pool of few-shot examples to choose from. */
+  examples?: BuiltInExample[];
+  /** Optional explicit picker; defaults to the keyword/rotation picker. */
+  pickExamples?: (prompt: string, max: number) => BuiltInExample[];
+  /** Max examples to inject (capped by FEW_SHOT_CHAR_BUDGET as well). */
+  maxExamples?: number;
+  /**
+   * Optional conversation history (not currently used by /api/generate, but
+   * left here so the pipeline is future-ready for chat-style follow-ups).
+   */
+  history?: { role: "user" | "assistant"; content: string }[];
+  /** Files from the previous generation when the user is iterating. */
+  priorFiles?: GenerateResultFile[];
+  /** The user's current prompt. */
+  currentUserPrompt: string;
+}
+
+export function buildMessagesForGeneration(
+  args: BuildMessagesArgs,
+): OpenRouterMessage[] {
+  const {
+    systemPrompt,
+    examples = BUILT_IN_EXAMPLES,
+    pickExamples = pickRelevantExamples,
+    maxExamples = 2,
+    history = [],
+    priorFiles,
+    currentUserPrompt,
+  } = args;
+
+  const messages: OpenRouterMessage[] = [];
+
+  // 1. System block — cached so subsequent calls only pay for new tokens.
+  messages.push({
     role: "system",
     content: [
       {
         type: "text",
-        text: systemText ?? SYSTEM_PROMPT,
+        text: systemPrompt,
         cache_control: { type: "ephemeral" },
       },
     ],
-  };
+  });
 
-  const messages: OpenRouterMessage[] = [systemMsg];
+  // 2. Few-shot examples — skipped when the user is iterating on existing
+  //    files (priorFiles takes priority as the "context" for the model) or
+  //    when the example pool is empty.
+  let pickedIds: string[] = [];
+  if (!priorFiles?.length && examples.length > 0 && maxExamples > 0) {
+    const picked = pickExamples(currentUserPrompt, maxExamples);
+    const budgeted = applyCharBudget(picked, FEW_SHOT_CHAR_BUDGET);
+    pickedIds = budgeted.map((e) => e.id);
+    for (const ex of budgeted) {
+      for (const turn of ex.conversation) {
+        messages.push({ role: turn.role, content: turn.content });
+      }
+    }
+  }
 
+  // 3. Prior files (follow-up edit context).
   if (priorFiles && priorFiles.length > 0) {
-    // Provide context of the previous version so the model can apply edits.
     const fileContext = priorFiles
-      .map(
-        (f) =>
-          `// FILE: ${f.path}\n${f.content}`,
-      )
+      .map((f) => `// FILE: ${f.path}\n${f.content}`)
       .join("\n\n");
-
     messages.push({
       role: "assistant",
       content: `Here is the previous version of the site you generated. The user is asking for a follow-up edit; preserve everything except what they asked to change.\n\n${fileContext}`,
     });
   }
 
-  messages.push({
-    role: "user",
-    content: prompt,
+  // 4. Optional history (kept for future use).
+  for (const h of history) {
+    messages.push({ role: h.role, content: h.content });
+  }
+
+  // 5. Current user prompt.
+  messages.push({ role: "user", content: currentUserPrompt });
+
+  if (process.env.NODE_ENV !== "production") {
+    const totalLen = messages.reduce((sum, m) => {
+      if (typeof m.content === "string") return sum + m.content.length;
+      return sum + m.content.reduce((s, p) => s + p.text.length, 0);
+    }, 0);
+    console.debug(
+      `[generate] messages=${messages.length} examples=[${pickedIds.join(",")}] totalChars=${totalLen}`,
+    );
+  }
+
+  return messages;
+}
+
+/** Drop examples one-by-one (from the end) until under the char budget. */
+function applyCharBudget(
+  examples: BuiltInExample[],
+  budget: number,
+): BuiltInExample[] {
+  const kept = [...examples];
+  const sizeOf = (e: BuiltInExample) =>
+    e.conversation.reduce((s, t) => s + t.content.length, 0);
+  let total = kept.reduce((s, e) => s + sizeOf(e), 0);
+  while (kept.length > 1 && total > budget) {
+    const dropped = kept.pop();
+    if (!dropped) break;
+    total -= sizeOf(dropped);
+  }
+  return kept;
+}
+
+// ---------------------------------------------------------------------------
+
+function buildBody({
+  prompt,
+  model,
+  priorFiles,
+  stream,
+  systemText,
+}: BuildRequestArgs): string {
+  // When the caller supplies a specialised system text (edit / remix), we
+  // honour it and skip few-shot examples — those examples target the generic
+  // architect mode.
+  const isOverride = Boolean(systemText);
+  const messages = buildMessagesForGeneration({
+    systemPrompt: systemText ?? SYSTEM_PROMPT,
+    examples: isOverride ? [] : BUILT_IN_EXAMPLES,
+    maxExamples: isOverride ? 0 : 2,
+    priorFiles,
+    currentUserPrompt: prompt,
   });
 
   return JSON.stringify({
@@ -196,24 +321,89 @@ export async function generateSiteStream(
   return parseResult(full);
 }
 
+/**
+ * Parse the model's raw text into a GenerateResult.
+ *
+ * Models occasionally:
+ *   1. wrap output in ```json fences,
+ *   2. leak commentary before/after the JSON,
+ *   3. truncate (max_tokens) — but for the common case of "valid JSON +
+ *      trailing junk" we want a best-effort recovery rather than a hard
+ *      failure.
+ *
+ * Strategy: strip fences → brace-balance scan to extract the first complete
+ * JSON object → JSON.parse it → validate required keys.
+ */
 function parseResult(raw: string): GenerateResult {
-  // Some models occasionally wrap JSON in code fences despite response_format.
   const cleaned = stripCodeFences(raw).trim();
+  const candidate = extractFirstJsonObject(cleaned) ?? cleaned;
+
+  let parsed: unknown;
   try {
-    const parsed = JSON.parse(cleaned) as GenerateResult;
-    if (!parsed.meta || !parsed.files || !parsed.preview) {
-      throw new Error("Missing required keys");
-    }
-    return parsed;
+    parsed = JSON.parse(candidate);
   } catch (e) {
     throw new Error(
-      `Model returned invalid JSON: ${(e as Error).message}\n\n${cleaned.slice(0, 400)}…`,
+      `Model returned invalid JSON: ${(e as Error).message}\n\n${candidate.slice(0, 400)}…`,
     );
   }
+
+  if (!isGenerateResult(parsed)) {
+    throw new Error(
+      `Model JSON is missing required keys (meta/files/preview). Got: ${candidate.slice(0, 300)}…`,
+    );
+  }
+  return parsed;
+}
+
+function isGenerateResult(v: unknown): v is GenerateResult {
+  if (!v || typeof v !== "object") return false;
+  const obj = v as Record<string, unknown>;
+  return (
+    typeof obj.meta === "object" &&
+    obj.meta !== null &&
+    Array.isArray(obj.files) &&
+    typeof obj.preview === "object" &&
+    obj.preview !== null
+  );
 }
 
 function stripCodeFences(s: string): string {
   const fenced = s.match(/^```(?:json)?\s*\n([\s\S]*?)\n```$/);
   if (fenced) return fenced[1];
   return s;
+}
+
+/**
+ * Walk the string and return the substring corresponding to the first
+ * top-level JSON object (handles nested braces, ignores braces inside
+ * strings). Returns null if no balanced object is found.
+ */
+function extractFirstJsonObject(s: string): string | null {
+  const start = s.indexOf("{");
+  if (start < 0) return null;
+  let depth = 0;
+  let inStr = false;
+  let escaped = false;
+  for (let i = start; i < s.length; i++) {
+    const ch = s[i];
+    if (inStr) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === "\\") {
+        escaped = true;
+      } else if (ch === '"') {
+        inStr = false;
+      }
+      continue;
+    }
+    if (ch === '"') {
+      inStr = true;
+    } else if (ch === "{") {
+      depth++;
+    } else if (ch === "}") {
+      depth--;
+      if (depth === 0) return s.slice(start, i + 1);
+    }
+  }
+  return null;
 }
