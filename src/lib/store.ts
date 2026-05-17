@@ -111,8 +111,12 @@ interface UserState {
   user: User | null;
   /** True until the first /api/me call resolves. */
   loading: boolean;
-  /** Open the Google sign-in flow. Resolves once the redirect starts. */
-  signIn: () => Promise<void>;
+  /**
+   * Open the Google sign-in flow. Resolves once the redirect starts.
+   * Pass a path the user should return to after a successful login —
+   * defaults to `/projects`.
+   */
+  signIn: (callbackUrl?: string) => Promise<void>;
   /** Sign out + clear local user state. */
   signOut: () => Promise<void>;
   /** Change the user's plan on the server and refresh local state. */
@@ -130,8 +134,8 @@ interface UserState {
 export const useUser = create<UserState>()((set, get) => ({
   user: null,
   loading: true,
-  signIn: async () => {
-    await nextSignIn("google", { callbackUrl: "/projects" });
+  signIn: async (callbackUrl = "/projects") => {
+    await nextSignIn("google", { callbackUrl });
   },
   signOut: async () => {
     set({ user: null });

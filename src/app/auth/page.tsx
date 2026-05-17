@@ -19,6 +19,11 @@ function AuthInner() {
   const router = useRouter();
   const sp = useSearchParams();
   const initialMode = sp.get("mode") === "signup" ? "signup" : "signin";
+  // `then=generate` signals the user was trying to generate while logged out.
+  // After Google sign-in we bounce them back to "/" so the home prompt-box
+  // (which reads the persisted draft) repopulates their text.
+  const then = sp.get("then");
+  const callbackUrl = then === "generate" ? "/" : "/projects";
   const [mode, setMode] = useState<"signin" | "signup">(initialMode);
   const [submitting, setSubmitting] = useState(false);
   const signIn = useUser((s) => s.signIn);
@@ -26,16 +31,16 @@ function AuthInner() {
 
   useEffect(() => setMode(initialMode), [initialMode]);
 
-  // If already signed in, bounce to /projects so /auth never strands a logged-in user.
+  // If already signed in, bounce so /auth never strands a logged-in user.
   useEffect(() => {
-    if (user) router.replace("/projects");
-  }, [user, router]);
+    if (user) router.replace(callbackUrl);
+  }, [user, router, callbackUrl]);
 
   async function doGoogle() {
     if (submitting) return;
     setSubmitting(true);
     try {
-      await signIn();
+      await signIn(callbackUrl);
     } finally {
       // signIn redirects, but if the redirect is cancelled we still want the button usable.
       setSubmitting(false);

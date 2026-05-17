@@ -10,11 +10,16 @@ import Google from "next-auth/providers/google";
  *   stable user id throughout the app.
  * - `prompt: "select_account"` so the user can pick an account every time
  *   (matches the user's spec: "выбрал акк и все").
+ * - `trustHost: true` — required on Vercel so NextAuth accepts the X-Forwarded-Host
+ *   header. Without it the session cookie can be set on a host that doesn't match
+ *   the request host, and `useSession()` resolves to "unauthenticated" on the very
+ *   next page load → user sees "Not signed in" right after a successful login.
  *
  * Required env vars (see `.env.example`):
- *   GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, NEXTAUTH_SECRET
+ *   GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, NEXTAUTH_SECRET, NEXTAUTH_URL
  */
 export const { handlers, auth, signIn, signOut } = NextAuth({
+  trustHost: true,
   providers: [
     Google({
       clientId: process.env.GOOGLE_CLIENT_ID,
