@@ -8,9 +8,14 @@ import { ChatPanel } from "@/components/generate/chat-panel";
 import { FileTree } from "@/components/generate/file-tree";
 import { CodeViewer } from "@/components/generate/code-viewer";
 import { PreviewPane } from "@/components/generate/preview-pane";
+import { QualityCheckOverlay } from "@/components/generate/quality-check-overlay";
 import { useProjects, useUser } from "@/lib/store";
 import { DEFAULT_MODEL } from "@/lib/examples";
-import type { GenerateResult, Project } from "@/lib/types";
+import type {
+  ComplexityAnalysis,
+  GenerateResult,
+  Project,
+} from "@/lib/types";
 import { Loader2, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -69,7 +74,10 @@ function GenerateInner() {
   }, [project?.result, activePath]);
 
   const startGeneration = useCallback(
-    async (prompt: string, opts?: { followUp?: boolean }) => {
+    async (
+      prompt: string,
+      opts?: { followUp?: boolean; analysis?: ComplexityAnalysis },
+    ) => {
       if (!project) return;
       setGenerating(true);
       setPartial("");
@@ -80,7 +88,9 @@ function GenerateInner() {
         role: "assistant",
         content: opts?.followUp
           ? "Reading the current site…"
-          : "Reading your prompt and choosing a direction…",
+          : opts?.analysis
+            ? `Quality Check: ${opts.analysis.score}/10 · ${opts.analysis.tier}. Building now…`
+            : "Reading your prompt and choosing a direction…",
         status: "streaming",
         createdAt: Date.now(),
       });
@@ -101,7 +111,12 @@ function GenerateInner() {
               model: project.model,
               priorFiles: project.result?.files ?? [],
             }
-          : { prompt, model: project.model };
+          : {
+              prompt,
+              model: project.model,
+              analysis: opts?.analysis,
+              complexityOverride: project.complexityOverride,
+            };
         const res = await fetch(endpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -205,16 +220,85 @@ function GenerateInner() {
     [project, appendMessage, patch, updateMessage, incrementUsage],
   );
 
+  // Pre-generation Quality Check: call /api/analyze, persist the result on
+  // the project, then kick off the heavy /api/generate stream.
+  const runQualityCheckAndGenerate = useCallback(
+    async (proj: Project) => {
+      // Already analyzed? Skip straight to generation (e.g. user refreshed
+      // mid-stream and we're resuming).
+      let analysis = proj.analysis;
+      if (!analysis) {
+        try {
+          const res = await fetch("/api/analyze", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ prompt: proj.prompt }),
+          });
+          if (res.ok) {
+            const data = (await res.json()) as {
+              analysis: ComplexityAnalysis;
+            };
+            analysis = data.analysis;
+          } else {
+            // 401 → the user got signed out between submit and analyze. Bail
+            // out cleanly so the API can flag the issue downstream too.
+            if (res.status === 401) {
+              patch(proj.id, { status: "error" });
+              return;
+            }
+            // Soft-fail: fall through to generation with no analysis so the
+            // user isn't blocked by a broken classifier.
+          }
+        } catch {
+          // Network error — same soft-fail behaviour.
+        }
+
+        if (analysis) {
+          // Honour Silver+ override by surfacing it on the analysis object.
+          const override = proj.complexityOverride;
+          if (override != null && Number.isFinite(override)) {
+            const score = Math.max(2, Math.min(10, Math.round(override)));
+            const stack: ComplexityAnalysis["stack"] =
+              score <= 4 ? "html" : score <= 6 ? "js-modules" : "typescript";
+            analysis = {
+              ...analysis,
+              score,
+              stack,
+              userOverride: true,
+            };
+          }
+          patch(proj.id, { analysis });
+        }
+      }
+
+      // Brief pause so the Quality Check overlay has time to flash the
+      // score — makes the UX feel intentional, not a glitch.
+      if (analysis) {
+        await new Promise((r) => setTimeout(r, 1200));
+      }
+
+      patch(proj.id, { status: "generating" });
+      await startGeneration(proj.prompt, {
+        followUp: false,
+        analysis: analysis ?? undefined,
+      });
+    },
+    [patch, startGeneration],
+  );
+
   // Autostart on first load if requested
   useEffect(() => {
     if (!hydrated || !project || startedRef.current) return;
     if (!autostart) return;
-    if (project.status !== "generating") return;
+    if (project.status !== "analyzing" && project.status !== "generating")
+      return;
     startedRef.current = true;
-    void startGeneration(project.prompt, { followUp: false });
+    void runQualityCheckAndGenerate(project);
     // remove autostart param so refresh doesn't re-fire
-    router.replace(`/generate?id=${encodeURIComponent(project.id)}`, { scroll: false });
-  }, [hydrated, project, autostart, router, startGeneration]);
+    router.replace(`/generate?id=${encodeURIComponent(project.id)}`, {
+      scroll: false,
+    });
+  }, [hydrated, project, autostart, router, runQualityCheckAndGenerate]);
 
   // Track current project for the projects list
   useEffect(() => {
@@ -320,6 +404,9 @@ function GenerateInner() {
         onRefresh={() => setIframeKey((k) => k + 1)}
         onToggleChat={() => setChatOpen((o) => !o)}
         chatOpen={chatOpen}
+        complexityScore={project.analysis?.score}
+        complexityTier={project.analysis?.tier}
+        complexityStack={project.analysis?.stack}
       />
 
       <div className="flex-1 relative min-h-0 md:grid md:grid-cols-[340px_1fr] flex">
@@ -383,6 +470,15 @@ function GenerateInner() {
           )}
         </div>
       </div>
+
+      {/* Quality Check loading overlay — only visible while the analyzer is
+          running or just resolved. Disappears once generation begins. */}
+      <QualityCheckOverlay
+        visible={project.status === "analyzing"}
+        analysis={project.analysis}
+        override={project.complexityOverride}
+        prompt={project.prompt}
+      />
     </div>
   );
 }

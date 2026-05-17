@@ -21,7 +21,7 @@ import { cn } from "@/lib/utils";
 
 interface MenuBarProps {
   projectTitle: string;
-  status: "generating" | "done" | "error";
+  status: "analyzing" | "generating" | "done" | "error";
   view: "preview" | "code";
   onViewChange: (v: "preview" | "code") => void;
   model: string;
@@ -33,6 +33,12 @@ interface MenuBarProps {
   /** Toggle the left chat panel on mobile. */
   onToggleChat?: () => void;
   chatOpen?: boolean;
+  /** Complexity score (1–10) once the analyzer has resolved. */
+  complexityScore?: number;
+  /** Short tier label, e.g. "Multi-page clone". */
+  complexityTier?: string;
+  /** Stack the model is building against. */
+  complexityStack?: "html" | "js-modules" | "typescript";
 }
 
 export function MenuBar({
@@ -48,6 +54,9 @@ export function MenuBar({
   onPublish,
   onToggleChat,
   chatOpen,
+  complexityScore,
+  complexityTier,
+  complexityStack,
 }: MenuBarProps) {
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRef = useRef<HTMLDivElement>(null);
@@ -108,6 +117,13 @@ export function MenuBar({
           {projectTitle}
         </span>
         <StatusPill status={status} />
+        {complexityScore != null && (
+          <ComplexityPill
+            score={complexityScore}
+            tier={complexityTier}
+            stack={complexityStack}
+          />
+        )}
       </div>
 
       {/* Center segmented preview/code toggle */}
@@ -284,7 +300,19 @@ function SegBtn({
   );
 }
 
-function StatusPill({ status }: { status: "generating" | "done" | "error" }) {
+function StatusPill({
+  status,
+}: {
+  status: "analyzing" | "generating" | "done" | "error";
+}) {
+  if (status === "analyzing") {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-[10px] sm:text-xs px-2 py-0.5 rounded-full border border-accent/30 bg-accent/10 text-accent shrink-0">
+        <Loader2 className="w-3 h-3 animate-spin" />
+        <span className="hidden sm:inline">Quality Check</span>
+      </span>
+    );
+  }
   if (status === "generating") {
     return (
       <span className="inline-flex items-center gap-1.5 text-[10px] sm:text-xs px-2 py-0.5 rounded-full border border-accent/30 bg-accent/10 text-accent shrink-0">
@@ -305,6 +333,39 @@ function StatusPill({ status }: { status: "generating" | "done" | "error" }) {
     <span className="inline-flex items-center gap-1.5 text-[10px] sm:text-xs px-2 py-0.5 rounded-full border border-accent/30 bg-accent/10 text-accent shrink-0">
       <Play className="w-3 h-3" />
       <span className="hidden sm:inline">Live</span>
+    </span>
+  );
+}
+
+function ComplexityPill({
+  score,
+  tier,
+  stack,
+}: {
+  score: number;
+  tier?: string;
+  stack?: "html" | "js-modules" | "typescript";
+}) {
+  const title = [
+    tier ? `Tier: ${tier}` : null,
+    stack ? `Stack: ${stack}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return (
+    <span
+      title={title || "Complexity score"}
+      className="inline-flex items-center gap-1 text-[10px] sm:text-xs px-2 py-0.5 rounded-full border border-border bg-elevated/60 text-muted shrink-0"
+    >
+      <span className="font-mono tabular-nums text-foreground">
+        {score}
+        <span className="text-subtle">/10</span>
+      </span>
+      {tier && (
+        <span className="hidden md:inline truncate max-w-[120px]">
+          · {tier}
+        </span>
+      )}
     </span>
   );
 }

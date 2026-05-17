@@ -25,7 +25,11 @@ import {
   pickRelevantExamples,
   type BuiltInExample,
 } from "./builtin-examples";
-import type { GenerateResult, GenerateResultFile } from "./types";
+import type {
+  ComplexityAnalysis,
+  GenerateResult,
+  GenerateResultFile,
+} from "./types";
 
 /**
  * Allow callers to swap the cached system prompt (e.g. EDIT_PROMPT, REMIX_PROMPT)
@@ -35,6 +39,69 @@ import type { GenerateResult, GenerateResultFile } from "./types";
  */
 export interface SystemOverride {
   systemText?: string;
+}
+
+/**
+ * Pre-generation complexity context produced by the Quality Check analyzer.
+ * Threaded through to the Site Architect via a `<complexity>` block prepended
+ * to the user message — the system prompt is told to read it and size its
+ * output accordingly.
+ */
+export interface ComplexityContext {
+  /** 1–10. Required when this context is passed. */
+  score: number;
+  /** "html" for ≤4, "js-modules" for 5–6, "typescript" for ≥7. */
+  stack: ComplexityAnalysis["stack"];
+  /** Short label, e.g. "Multi-page clone". */
+  tier?: string;
+  /** Pages the analyzer recommended building (always starts with "Home"). */
+  recommendedPages?: string[];
+  /** Analyzer's one-sentence rationale. */
+  reasoning?: string;
+  /** Whether a Silver/Gold user manually overrode the analyzed score. */
+  userOverride?: boolean;
+}
+
+function buildComplexityHeader(ctx: ComplexityContext): string {
+  const pages = (ctx.recommendedPages ?? []).filter(Boolean).join(", ");
+  const tier = ctx.tier?.trim() || tierFromScore(ctx.score);
+  const lines: string[] = [];
+  lines.push(
+    `<complexity score="${ctx.score}/10" stack="${ctx.stack}" tier="${tier}"${
+      ctx.userOverride ? ' override="user-selected"' : ""
+    }>`,
+  );
+  if (pages) lines.push(`Recommended pages: ${pages}`);
+  if (ctx.reasoning) lines.push(`Analyzer rationale: ${ctx.reasoning}`);
+  lines.push(
+    `Build a site that matches a ${ctx.score}/10 on the Henosis rubric — no smaller, no larger.`,
+  );
+  if (ctx.score >= 5) {
+    lines.push(
+      `Stack is "${ctx.stack}": emit the matching project tree (package.json, README, ${
+        ctx.score >= 7 ? "tsconfig.json + src/*.ts source files" : "src/*.js modules"
+      }) alongside the runtime index.html/styles.css/script.js.`,
+    );
+  } else {
+    lines.push(
+      `Stack is "html": keep it lean — index.html (+ pages/*.html if needed) + styles.css + script.js. No package.json.`,
+    );
+  }
+  lines.push(`</complexity>`);
+  return lines.join("\n");
+}
+
+function tierFromScore(score: number): string {
+  if (score <= 1) return "Static badge";
+  if (score === 2) return "Coming-soon";
+  if (score === 3) return "Simple landing";
+  if (score === 4) return "Content landing";
+  if (score === 5) return "Animated landing";
+  if (score === 6) return "Two-page site";
+  if (score === 7) return "Multi-page clone";
+  if (score === 8) return "Full product";
+  if (score === 9) return "Production SaaS";
+  return "Custom system";
 }
 
 const OPENROUTER_API = "https://openrouter.ai/api/v1/chat/completions";
@@ -59,6 +126,7 @@ interface BuildRequestArgs {
   priorFiles?: GenerateResultFile[];
   stream?: boolean;
   systemText?: string;
+  complexity?: ComplexityContext;
 }
 
 // ---------------------------------------------------------------------------
@@ -86,6 +154,12 @@ export interface BuildMessagesArgs {
   priorFiles?: GenerateResultFile[];
   /** The user's current prompt. */
   currentUserPrompt: string;
+  /**
+   * Optional pre-generation complexity context. When present, a
+   * `<complexity>` block is prepended to the user message so the Site
+   * Architect knows the target size / stack.
+   */
+  complexity?: ComplexityContext;
 }
 
 export function buildMessagesForGeneration(
@@ -99,6 +173,7 @@ export function buildMessagesForGeneration(
     history = [],
     priorFiles,
     currentUserPrompt,
+    complexity,
   } = args;
 
   const messages: OpenRouterMessage[] = [];
@@ -146,8 +221,13 @@ export function buildMessagesForGeneration(
     messages.push({ role: h.role, content: h.content });
   }
 
-  // 5. Current user prompt.
-  messages.push({ role: "user", content: currentUserPrompt });
+  // 5. Current user prompt. Prepend a `<complexity>` block when the
+  //    pre-generation analyzer has produced one — the system prompt is
+  //    explicitly told to read it and size the output accordingly.
+  const userBlocks: string[] = [];
+  if (complexity) userBlocks.push(buildComplexityHeader(complexity));
+  userBlocks.push(currentUserPrompt);
+  messages.push({ role: "user", content: userBlocks.join("\n\n") });
 
   if (process.env.NODE_ENV !== "production") {
     const totalLen = messages.reduce((sum, m) => {
@@ -187,6 +267,7 @@ function buildBody({
   priorFiles,
   stream,
   systemText,
+  complexity,
 }: BuildRequestArgs): string {
   // When the caller supplies a specialised system text (edit / remix), we
   // honour it and skip few-shot examples — those examples target the generic
@@ -198,6 +279,7 @@ function buildBody({
     maxExamples: isOverride ? 0 : 2,
     priorFiles,
     currentUserPrompt: prompt,
+    complexity,
   });
 
   return JSON.stringify({
@@ -229,6 +311,7 @@ export async function generateSite(
   model: string,
   priorFiles?: GenerateResultFile[],
   override?: SystemOverride,
+  complexity?: ComplexityContext,
 ): Promise<GenerateResult> {
   const res = await fetch(OPENROUTER_API, {
     method: "POST",
@@ -239,6 +322,7 @@ export async function generateSite(
       priorFiles,
       stream: false,
       systemText: override?.systemText,
+      complexity,
     }),
   });
 
@@ -265,6 +349,7 @@ export async function generateSiteStream(
   priorFiles: GenerateResultFile[] | undefined,
   callbacks: StreamCallbacks,
   override?: SystemOverride,
+  complexity?: ComplexityContext,
 ): Promise<GenerateResult> {
   callbacks.onMeta?.({ model });
 
@@ -277,6 +362,7 @@ export async function generateSiteStream(
       priorFiles,
       stream: true,
       systemText: override?.systemText,
+      complexity,
     }),
   });
 
