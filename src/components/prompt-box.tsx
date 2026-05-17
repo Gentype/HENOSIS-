@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState, useRef, useEffect } from "react";
 import { ArrowUp, Sparkles, Loader2, Wand2 } from "lucide-react";
+import { useSession } from "next-auth/react";
 import { ModelSelector } from "./model-selector";
 import { useDraft, useProjects, useUser } from "@/lib/store";
 import { cn } from "@/lib/utils";
@@ -34,6 +35,17 @@ export function PromptBox({
   const upsertProject = useProjects((s) => s.upsert);
   const setCurrentProject = useProjects((s) => s.setCurrent);
   const user = useUser((s) => s.user);
+  // Use the NextAuth session for the binary "is this browser signed in?"
+  // check. It's SSR-resolved (see `Providers` / `initialSession`) so it's
+  // already correct on the first client render — unlike `useUser.user`,
+  // which only fills in after `/api/me` resolves a few hundred ms later.
+  // Without this, a freshly-signed-in user clicking Generate gets bounced
+  // back to /auth because `user` is still null, even though the session
+  // cookie is set. That's the "registers, but the site keeps asking to
+  // sign in" bug.
+  const { status: sessionStatus } = useSession();
+  const isAuthenticated = sessionStatus === "authenticated";
+  const isSessionLoading = sessionStatus === "loading";
 
   const [value, setValue] = useState(initialPrompt ?? draftPrompt ?? "");
   const [submitting, setSubmitting] = useState(false);
@@ -92,10 +104,16 @@ export function PromptBox({
       return;
     }
 
+    // Still resolving the SSR-provided session on the very first client
+    // render — wait one tick rather than redirect prematurely, otherwise a
+    // signed-in user who clicks Generate before SessionProvider hydrates
+    // gets bounced to /auth → /auth bounces them back → flicker.
+    if (isSessionLoading) return;
+
     // Anonymous users: bounce to /auth with the prompt safely stored in the
     // draft store. After sign-in, /auth redirects back to "/" and the
     // textarea is repopulated from the draft.
-    if (!user) {
+    if (!isAuthenticated) {
       router.push("/auth?then=generate");
       return;
     }
@@ -255,7 +273,7 @@ export function PromptBox({
                 <Loader2 className="w-4 h-4 animate-spin" />
                 <span>Starting…</span>
               </>
-            ) : !user && !onSubmitFollowUp ? (
+            ) : !isAuthenticated && !isSessionLoading && !onSubmitFollowUp ? (
               <>
                 <Sparkles className="w-4 h-4" />
                 <span>Sign in to generate</span>
