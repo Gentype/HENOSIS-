@@ -25,6 +25,23 @@ export interface GenerateResult {
   meta: GenerateResultMeta;
   files: GenerateResultFile[];
   preview: GenerateResultPreview;
+  /**
+   * Optional step-by-step build plan the model followed. Surfaced in the
+   * chat sidebar so the user can see what was built and why.
+   * Older models that don't emit `plan` are fine — the renderer treats it
+   * as optional.
+   */
+  plan?: string[];
+  /**
+   * Optional non-blocking notes from the model (assumptions made, follow-up
+   * suggestions, caveats). Shown as a collapsible note in the chat.
+   */
+  notes?: string[];
+  /**
+   * Optional one-paragraph human summary in the user's own language —
+   * what was built, what's notable. Shown as the model's chat reply.
+   */
+  userSummary?: string;
 }
 
 export interface ChatMessage {

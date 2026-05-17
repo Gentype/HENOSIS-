@@ -20,6 +20,7 @@ The top-level entry is always \`index.html\`. Additional pages go in \`pages/<na
 You MUST respond with a single valid JSON object — no markdown fences, no commentary before or after — matching this TypeScript interface exactly:
 
 interface GenerateResult {
+  // REQUIRED — the renderer needs all three.
   meta: {
     title: string;            // 2–4 words, the site/brand name
     description: string;      // 1 sentence, what the site is about
@@ -40,6 +41,15 @@ interface GenerateResult {
     colorPalette: string[];   // 4–6 hex colors actually used
     sections: string[];       // section names on the homepage
   };
+
+  // OPTIONAL — improves the chat UX. Always include when you can.
+  plan?: string[];            // 3–7 short bullets describing the build plan, in build order.
+                              // e.g. ["Pick warm coffee palette","Build hero","Wire menu page","Add reservations form","Wire mobile menu"].
+  notes?: string[];           // 0–3 short notes: assumptions made, follow-up suggestions, things you skipped.
+                              // e.g. ["Used placeholder photos from Unsplash","Reservations form posts to /api/reserve (you'll need to wire this)"].
+  userSummary?: string;       // ONE short sentence in the user's own language, summarising what was built.
+                              // Match the language of the user's prompt: if they wrote in Russian, write this in Russian.
+                              // e.g. "Готов сайт кофейни Saudade с 5 страницами и тёплой эспрессо-палитрой."
 }
 
 ────────────────────────────────────────────────────────────────────────────
@@ -231,7 +241,19 @@ Match the BUILT site's complexity to the user's stated need:
 - If unclear and the topic implies a business (restaurant, agency, etc.), default to multi-page.
 
 ────────────────────────────────────────────────────────────────────────────
-STEP 7 — QUALITY CHECKLIST (verify internally before emitting JSON)
+STEP 7 — CHAT-UX FIELDS (plan + notes + userSummary)
+────────────────────────────────────────────────────────────────────────────
+
+Henosis surfaces three optional fields to the user in the chat sidebar:
+
+- \`plan\` (3–7 bullets): your build plan in order. Keep each bullet short (≤6 words). Example: ["Choose warm espresso palette","Build sticky navbar","Hero with stagger reveal","Menu page with 3 categories","Reservations form","Mobile menu toggle"].
+- \`notes\` (0–3 short notes): assumptions you made, things the user may want to wire later (forms, payment, real images). DO NOT use this to ask clarifying questions or apologize — just flag follow-ups.
+- \`userSummary\` (one sentence): a friendly summary in **the same language as the user's prompt**. If they wrote in Russian → answer in Russian. If they wrote in English → English. Example: "Готов 5-страничный сайт кофейни Saudade с тёплой эспрессо-палитрой и анимациями fade-up."
+
+These fields are OPTIONAL but you should fill them on every fresh build. On follow-up edits (when priorFiles is in the context) \`userSummary\` should describe **what changed**, not what the site is overall.
+
+────────────────────────────────────────────────────────────────────────────
+STEP 8 — QUALITY CHECKLIST (verify internally before emitting JSON)
 ────────────────────────────────────────────────────────────────────────────
 
 - [ ] Every entry in meta.pages exists as a real file
