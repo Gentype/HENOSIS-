@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import Image from "next/image";
+import { useSession } from "next-auth/react";
 import { Logo } from "./logo";
 import { cn } from "@/lib/utils";
 import { useUser } from "@/lib/store";
@@ -21,6 +22,19 @@ const MARKETING_LINKS = [
 
 export function Navbar({ className, variant = "marketing" }: NavbarProps) {
   const user = useUser((s) => s.user);
+  // The NextAuth session is the ground truth for "is this browser signed
+  // in?" — it's resolved server-side and handed to SessionProvider as
+  // `initialSession`, so it's correct on the very first client render. The
+  // `useUser` zustand store only fills in *after* `/api/me` resolves a few
+  // hundred ms later, which is too slow: a freshly-signed-in user briefly
+  // sees the "Sign in / Sign up" pair in the navbar even though they're
+  // already authenticated, then it flips. Use the session for the binary
+  // decision, fall back to the session's user fields for the avatar while
+  // `useUser` catches up.
+  const { data: session, status: sessionStatus } = useSession();
+  const isAuthenticated = sessionStatus === "authenticated";
+  const isSessionLoading = sessionStatus === "loading";
+  const displayUser = user ?? sessionToDisplayUser(session);
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -78,22 +92,32 @@ export function Navbar({ className, variant = "marketing" }: NavbarProps) {
 
           {/* Desktop right cluster */}
           <div className="hidden sm:flex items-center gap-2">
-            {user ? (
+            {isAuthenticated && displayUser ? (
               <Link
                 href="/profile"
                 className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-border bg-surface/60 hover:bg-surface text-sm transition-colors"
               >
-                <Avatar user={user} size={24} />
-                <span className="hidden sm:inline text-foreground">{user.name}</span>
-                <span
-                  className={cn(
-                    "hidden md:inline text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded border",
-                    tierBadgeClass(user.plan),
-                  )}
-                >
-                  {user.tier}
-                </span>
+                <Avatar user={displayUser} size={24} />
+                <span className="hidden sm:inline text-foreground">{displayUser.name}</span>
+                {user && (
+                  <span
+                    className={cn(
+                      "hidden md:inline text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded border",
+                      tierBadgeClass(user.plan),
+                    )}
+                  >
+                    {user.tier}
+                  </span>
+                )}
               </Link>
+            ) : isSessionLoading ? (
+              // While SessionProvider is still resolving, render a neutral
+              // pill so the navbar doesn't flash "Sign in / Sign up" at a
+              // user whose cookie is about to be confirmed valid.
+              <div
+                className="h-8 w-24 rounded-full border border-border bg-surface/40 animate-pulse"
+                aria-hidden
+              />
             ) : (
               <>
                 <Link
@@ -148,23 +172,30 @@ export function Navbar({ className, variant = "marketing" }: NavbarProps) {
                 </Link>
               ))}
             <div className="my-1 h-px bg-border" />
-            {user ? (
+            {isAuthenticated && displayUser ? (
               <Link
                 href="/profile"
                 onClick={() => setMenuOpen(false)}
                 className="px-4 py-3 rounded-xl text-sm text-foreground hover:bg-white/5 transition-colors flex items-center gap-2"
               >
-                <Avatar user={user} size={24} />
-                <span>{user.name ?? "Profile"}</span>
-                <span
-                  className={cn(
-                    "ml-auto text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded border",
-                    tierBadgeClass(user.plan),
-                  )}
-                >
-                  {user.tier}
-                </span>
+                <Avatar user={displayUser} size={24} />
+                <span>{displayUser.name ?? "Profile"}</span>
+                {user && (
+                  <span
+                    className={cn(
+                      "ml-auto text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded border",
+                      tierBadgeClass(user.plan),
+                    )}
+                  >
+                    {user.tier}
+                  </span>
+                )}
               </Link>
+            ) : isSessionLoading ? (
+              <div
+                className="mx-2 my-2 h-9 rounded-xl border border-border bg-surface/40 animate-pulse"
+                aria-hidden
+              />
             ) : (
               <>
                 <Link
@@ -224,4 +255,21 @@ function tierBadgeClass(plan: "free" | "pro" | "ultra") {
   if (plan === "ultra") return "bg-gold/10 text-gold border-gold/40";
   if (plan === "pro") return "bg-silver/10 text-silver border-silver/40";
   return "bg-bronze/10 text-bronze border-bronze/40";
+}
+
+// Minimal user shape the navbar Avatar needs. Both the zustand `useUser`
+// store and a raw NextAuth session can be projected into this — see
+// `displayUser` above. Keeping this local on purpose so we don't leak a
+// half-typed "user" concept to the rest of the app.
+type NavbarDisplayUser = { image: string | null; name: string };
+
+function sessionToDisplayUser(
+  session: { user?: { name?: string | null; image?: string | null } | null } | null | undefined,
+): NavbarDisplayUser | null {
+  const u = session?.user;
+  if (!u) return null;
+  return {
+    name: u.name ?? "You",
+    image: u.image ?? null,
+  };
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { Navbar } from "@/components/navbar";
 import { Footer } from "@/components/footer";
 import { Aurora } from "@/components/aurora";
@@ -15,14 +16,26 @@ import type { Plan } from "@/lib/types";
 export default function ProfilePage() {
   const router = useRouter();
   const user = useUser((s) => s.user);
-  const loading = useUser((s) => s.loading);
   const signOut = useUser((s) => s.signOut);
   const projects = useProjects((s) => s.projects);
   const clearProjects = useProjects((s) => s.clear);
+  // Use the NextAuth session as the canonical "is the browser signed in?"
+  // signal — it's SSR-resolved via SessionProvider's `initialSession`, so
+  // it's correct on the very first client render. The `useUser` zustand
+  // store fills in *after* `/api/me` returns, which can be slow or, on a
+  // misconfigured deploy (e.g. Vercel without `KV_REST_API_URL`), fail
+  // entirely — and that's exactly the path that left a freshly-signed-in
+  // user staring at a "Not signed in" page asking them to register again.
+  const { data: session, status: sessionStatus } = useSession();
+  const isAuthenticated = sessionStatus === "authenticated";
+  const isSessionLoading = sessionStatus === "loading";
   const [hydrated, setHydrated] = useState(false);
   useEffect(() => setHydrated(true), []);
 
-  if (hydrated && !loading && !user) {
+  // Show "Not signed in" only after the session has resolved to
+  // "unauthenticated". A still-loading session means we have no answer
+  // yet — render a quiet skeleton instead of accusing the user.
+  if (hydrated && !isSessionLoading && !isAuthenticated) {
     return (
       <>
         <Navbar />
@@ -44,7 +57,7 @@ export default function ProfilePage() {
     );
   }
 
-  if (!hydrated || !user) {
+  if (!hydrated || !isAuthenticated) {
     return (
       <>
         <Navbar />
@@ -54,15 +67,26 @@ export default function ProfilePage() {
     );
   }
 
+  // At this point we know the user *is* signed in. `user` (from /api/me)
+  // may still be hydrating — fall back to the session's user fields so
+  // we can render the page immediately. Tier/quota/joinedAt come from
+  // our server, so they only render when `user` arrives.
+  const sessionUser = session?.user;
+  const displayName = user?.name ?? sessionUser?.name ?? "You";
+  const displayEmail = user?.email ?? sessionUser?.email ?? "";
+  const displayImage = user?.image ?? sessionUser?.image ?? null;
+
   const pct =
-    user.limit == null
+    !user || user.limit == null
       ? 0
       : Math.min(100, (user.generationsUsed / user.limit) * 100);
 
+  // Aurora colour follows the user's tier. If `/api/me` hasn't resolved yet
+  // we fall back to bronze so the visual still renders during the skeleton.
   const tierAuroraVariant =
-    user.plan === "ultra"
+    user?.plan === "ultra"
       ? "tier-gold"
-      : user.plan === "pro"
+      : user?.plan === "pro"
         ? "tier-silver"
         : "tier-bronze";
 
@@ -73,10 +97,10 @@ export default function ProfilePage() {
         <Aurora variant="subtle" />
         <section className="relative z-[2] mx-auto max-w-5xl px-5 lg:px-8 pt-10 pb-16">
           <div className="flex items-center gap-4">
-            {user.image ? (
+            {displayImage ? (
               <Image
-                src={user.image}
-                alt={user.name}
+                src={displayImage}
+                alt={displayName}
                 width={64}
                 height={64}
                 className="w-16 h-16 rounded-full border border-border object-cover"
@@ -84,15 +108,17 @@ export default function ProfilePage() {
               />
             ) : (
               <div className="w-16 h-16 rounded-full bg-accent text-black grid place-items-center text-2xl font-semibold uppercase">
-                {user.name?.[0] ?? "U"}
+                {displayName?.[0] ?? "U"}
               </div>
             )}
             <div>
-              <h1 className="text-3xl font-semibold tracking-tight">{user.name}</h1>
-              <div className="text-muted">{user.email}</div>
-              <div className="text-xs text-subtle mt-0.5">
-                Joined {relativeTime(user.joinedAt)}
-              </div>
+              <h1 className="text-3xl font-semibold tracking-tight">{displayName}</h1>
+              <div className="text-muted">{displayEmail}</div>
+              {user && (
+                <div className="text-xs text-subtle mt-0.5">
+                  Joined {relativeTime(user.joinedAt)}
+                </div>
+              )}
             </div>
             <button
               type="button"
@@ -110,45 +136,63 @@ export default function ProfilePage() {
           <div className="mt-10 grid gap-5 md:grid-cols-2">
             <div className="glass relative overflow-hidden rounded-2xl p-6">
               <Aurora variant={tierAuroraVariant} />
-              <div className="relative z-[2] flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <PlanIcon plan={user.plan} />
-                  <div>
-                    <div className="text-xs uppercase tracking-wider text-subtle">
-                      Current tier
+              {user ? (
+                <>
+                  <div className="relative z-[2] flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <PlanIcon plan={user.plan} />
+                      <div>
+                        <div className="text-xs uppercase tracking-wider text-subtle">
+                          Current tier
+                        </div>
+                        <div className="text-lg font-medium">{user.tier}</div>
+                      </div>
                     </div>
-                    <div className="text-lg font-medium">{user.tier}</div>
+                    <Link
+                      href="/pricing"
+                      className="text-sm text-accent hover:underline underline-offset-4"
+                    >
+                      Manage →
+                    </Link>
+                  </div>
+
+                  <div className="relative z-[2] mt-6">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted">Generations used</span>
+                      <span className="font-medium">
+                        {user.generationsUsed} / {user.limit == null ? "∞" : user.limit}
+                      </span>
+                    </div>
+                    <div className="mt-2 h-2 rounded-full bg-elevated overflow-hidden">
+                      <div
+                        className={cn(
+                          "h-full rounded-full transition-all",
+                          pct > 80
+                            ? "bg-red-400"
+                            : pct > 50
+                              ? "bg-gold"
+                              : "bg-accent",
+                        )}
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                  </div>
+                </>
+              ) : (
+                // `/api/me` hasn't resolved yet (or failed on a deploy without
+                // KV configured). Show a neutral skeleton instead of a scary
+                // error so the user knows they ARE signed in — tier/quota
+                // will fill in once the server responds.
+                <div className="relative z-[2] py-2">
+                  <div className="text-xs uppercase tracking-wider text-subtle">
+                    Current tier
+                  </div>
+                  <div className="mt-2 h-6 w-24 rounded bg-elevated animate-pulse" />
+                  <div className="mt-6 text-sm text-muted">
+                    Loading your tier & quota…
                   </div>
                 </div>
-                <Link
-                  href="/pricing"
-                  className="text-sm text-accent hover:underline underline-offset-4"
-                >
-                  Manage →
-                </Link>
-              </div>
-
-              <div className="relative z-[2] mt-6">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted">Generations used</span>
-                  <span className="font-medium">
-                    {user.generationsUsed} / {user.limit == null ? "∞" : user.limit}
-                  </span>
-                </div>
-                <div className="mt-2 h-2 rounded-full bg-elevated overflow-hidden">
-                  <div
-                    className={cn(
-                      "h-full rounded-full transition-all",
-                      pct > 80
-                        ? "bg-red-400"
-                        : pct > 50
-                          ? "bg-gold"
-                          : "bg-accent",
-                    )}
-                    style={{ width: `${pct}%` }}
-                  />
-                </div>
-              </div>
+              )}
             </div>
 
             <div className="glass relative overflow-hidden rounded-2xl p-6">

@@ -42,6 +42,41 @@ export interface GenerateResult {
    * what was built, what's notable. Shown as the model's chat reply.
    */
   userSummary?: string;
+  /**
+   * Complexity rating (1–10) that the build actually targeted. Mirrors the
+   * pre-generation analysis so the UI can pin the score to the finished site.
+   */
+  complexity?: number;
+}
+
+/**
+ * Result of the pre-generation "Проверка качества продукта" (Quality Check)
+ * step. The model classifies the user's prompt into a 1–10 complexity tier
+ * and recommends a tech stack + page set. Surfaced in the UI as an
+ * animated loading screen before the heavy generation call.
+ */
+export interface ComplexityAnalysis {
+  /** 1–10. See system-prompt.ts for the rubric. */
+  score: number;
+  /** One short sentence explaining why, in the user's language. */
+  reasoning: string;
+  /** Short tier label, e.g. "Landing", "Multi-page", "Full product". */
+  tier: string;
+  /** Pages the model recommends building. */
+  recommendedPages: string[];
+  /**
+   * "html" for ≤4 (vanilla HTML + CSS + JS), "react-ts" for ≥5
+   * (full React + TypeScript project tree executed in-browser via
+   * Babel-standalone + esm.sh; see lib/preview-assembler.ts).
+   *
+   * The "js-modules" and "typescript" values are legacy aliases that map
+   * onto "react-ts" at read time — they may still appear in older saved
+   * projects from earlier prompts. New code paths only emit "html" or
+   * "react-ts".
+   */
+  stack: "html" | "react-ts" | "js-modules" | "typescript";
+  /** True if the user explicitly overrode the analyzed score (Silver+). */
+  userOverride?: boolean;
 }
 
 export interface ChatMessage {
@@ -56,12 +91,28 @@ export interface Project {
   id: string;
   prompt: string;
   model: string;
-  status: "generating" | "done" | "error";
+  /**
+   * `analyzing` — pre-generation Quality Check is running (?/10 classifier).
+   * `generating` — main /api/generate call is streaming.
+   */
+  status: "analyzing" | "generating" | "done" | "error";
   title: string;
   createdAt: number;
   updatedAt: number;
   result: GenerateResult | null;
   history: ChatMessage[];
+  /**
+   * The complexity analysis surfaced as the "Проверка качества продукта"
+   * screen. Set as soon as /api/analyze returns; reused when the user kicks
+   * off the heavy generation.
+   */
+  analysis?: ComplexityAnalysis;
+  /**
+   * Optional manual complexity (2–10) chosen by a Silver/Gold user before
+   * submitting. If set, the analyzer still runs for the rationale, but the
+   * final build targets this score.
+   */
+  complexityOverride?: number;
 }
 
 export type Plan = "free" | "pro" | "ultra";

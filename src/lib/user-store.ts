@@ -4,17 +4,26 @@ import { Redis } from "@upstash/redis";
 import type { Session } from "next-auth";
 
 /**
- * User / quota store with two backends:
+ * User / quota store with three backends, picked in priority order:
  *
- *   - **Upstash Redis** (used when `KV_REST_API_URL` + `KV_REST_API_TOKEN`
- *     are set — the env vars Vercel KV injects automatically). One key per
- *     user (`user:<id>`), so concurrent writes from different lambdas don't
- *     trample each other.
- *   - **File-backed JSON** at `data/users.json` for local `next dev`. Wrapped
- *     in an in-process mutex.
+ *   1. **Upstash Redis** — when `KV_REST_API_URL` + `KV_REST_API_TOKEN`
+ *      are set (the env vars Vercel KV injects automatically). One key per
+ *      user, so concurrent writes from different lambdas don't trample
+ *      each other. This is the right answer for production.
  *
- * Picked Upstash Redis because it speaks HTTP, so it works on Vercel's
- * serverless lambdas without persistent connections.
+ *   2. **File-backed JSON** — for local `next dev`. Writes to
+ *      `<cwd>/data/users.json`, wrapped in an in-process mutex.
+ *
+ *   3. **Ephemeral in-memory** — last-resort fallback when *both* of the
+ *      above fail. This kicks in on misconfigured production deploys
+ *      (Vercel without KV configured: `/var/task` is read-only, so the
+ *      file backend can't write). Without this fallback, `getOrCreateUser`
+ *      throws → `/api/me` 500s → the client `useUser` store stays empty
+ *      forever → the freshly-signed-in user is shown a "Not signed in"
+ *      page and asked to register again. The in-memory map is per-lambda
+ *      so quotas don't persist between cold starts, but at least the
+ *      user is recognized as authenticated, which is a strict improvement
+ *      over the current "you appear to not exist" behavior.
  */
 
 export type Plan = "free" | "pro" | "ultra";
@@ -48,9 +57,16 @@ export const ALL_PLANS: Plan[] = ["free", "pro", "ultra"];
 // ---------------------------------------------------------------------------
 // Storage abstraction
 //
-// Two implementations: Redis (per-user keys, used in serverless / production)
-// and a JSON file at data/users.json (local dev). The Redis client is created
-// lazily so missing env vars don't blow up at import time.
+// Three implementations:
+//   - RedisStorage  — production (Upstash KV, requires env vars)
+//   - FileStorage   — local `next dev` (writes <cwd>/data/users.json)
+//   - MemoryStorage — last-resort fallback for misconfigured deploys
+//
+// The Redis client is created lazily so missing env vars don't blow up at
+// import time. FileStorage detects unwritable filesystems (e.g. Vercel's
+// read-only `/var/task`) on first write and *demotes itself* to in-memory
+// behavior so subsequent calls keep the user authenticated rather than
+// 500-ing on every request.
 // ---------------------------------------------------------------------------
 
 interface Storage {
@@ -61,9 +77,26 @@ interface Storage {
 const DATA_DIR = path.join(process.cwd(), "data");
 const USERS_FILE = path.join(DATA_DIR, "users.json");
 
+class MemoryStorage implements Storage {
+  private users = new Map<string, UserRecord>();
+
+  async get(id: string): Promise<UserRecord | null> {
+    return this.users.get(id) ?? null;
+  }
+
+  async put(record: UserRecord): Promise<void> {
+    this.users.set(record.id, record);
+  }
+}
+
 class FileStorage implements Storage {
   // Per-process mutex; the JSON file is a single shared resource.
   private chain: Promise<unknown> = Promise.resolve();
+  // Set once we discover the filesystem is read-only (e.g. Vercel's
+  // `/var/task`). After that we serve all reads/writes from memory so we
+  // don't 500 on every request — quota won't persist across cold starts,
+  // but the user at least stays authenticated.
+  private memoryFallback: MemoryStorage | null = null;
 
   private withLock<T>(fn: () => Promise<T>): Promise<T> {
     const next = this.chain.then(fn, fn) as Promise<T>;
@@ -75,8 +108,8 @@ class FileStorage implements Storage {
   }
 
   private async readAll(): Promise<Record<string, UserRecord>> {
-    await fs.mkdir(DATA_DIR, { recursive: true });
     try {
+      await fs.mkdir(DATA_DIR, { recursive: true });
       const raw = await fs.readFile(USERS_FILE, "utf-8");
       const parsed = JSON.parse(raw) as { users?: Record<string, UserRecord> };
       return parsed?.users ?? {};
@@ -91,6 +124,7 @@ class FileStorage implements Storage {
   }
 
   async get(id: string): Promise<UserRecord | null> {
+    if (this.memoryFallback) return this.memoryFallback.get(id);
     return this.withLock(async () => {
       const users = await this.readAll();
       return users[id] ?? null;
@@ -98,11 +132,24 @@ class FileStorage implements Storage {
   }
 
   async put(record: UserRecord): Promise<void> {
-    await this.withLock(async () => {
-      const users = await this.readAll();
-      users[record.id] = record;
-      await this.writeAll(users);
-    });
+    if (this.memoryFallback) return this.memoryFallback.put(record);
+    try {
+      await this.withLock(async () => {
+        const users = await this.readAll();
+        users[record.id] = record;
+        await this.writeAll(users);
+      });
+    } catch (err) {
+      // Read-only filesystem (EROFS) or quota errors → fall back to memory
+      // so we don't keep blowing up on every signed-in request. Logged so
+      // the operator notices and configures KV.
+      console.warn(
+        "[user-store] File backend is unwritable; falling back to in-memory storage. Configure Upstash KV (KV_REST_API_URL + KV_REST_API_TOKEN) for persistence.",
+        err,
+      );
+      this.memoryFallback = new MemoryStorage();
+      await this.memoryFallback.put(record);
+    }
   }
 }
 

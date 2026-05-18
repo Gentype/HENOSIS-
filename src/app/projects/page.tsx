@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { useSession } from "next-auth/react";
 import { Navbar } from "@/components/navbar";
 import { Footer } from "@/components/footer";
 import { useProjects, useUser } from "@/lib/store";
@@ -12,6 +13,13 @@ export default function ProjectsPage() {
   const projects = useProjects((s) => s.projects);
   const remove = useProjects((s) => s.remove);
   const user = useUser((s) => s.user);
+  // Use the session for the binary "signed in?" check so a freshly
+  // signed-in user doesn't see "Sign in to sync projects across devices."
+  // while /api/me is still loading. `useUser.user` still drives the
+  // email label below (it has the canonical email from our server).
+  const { data: session, status: sessionStatus } = useSession();
+  const isAuthenticated = sessionStatus === "authenticated";
+  const signedInEmail = user?.email ?? session?.user?.email ?? null;
   const [hydrated, setHydrated] = useState(false);
   useEffect(() => setHydrated(true), []);
 
@@ -26,8 +34,10 @@ export default function ProjectsPage() {
                 My projects
               </h1>
               <p className="mt-1.5 text-muted">
-                {user
-                  ? `Signed in as ${user.email}.`
+                {isAuthenticated
+                  ? signedInEmail
+                    ? `Signed in as ${signedInEmail}.`
+                    : "Signed in."
                   : "Sign in to sync projects across devices."}
               </p>
             </div>
@@ -99,7 +109,18 @@ export default function ProjectsPage() {
   );
 }
 
-function StatusBadge({ status }: { status: "generating" | "done" | "error" }) {
+function StatusBadge({
+  status,
+}: {
+  status: "analyzing" | "generating" | "done" | "error";
+}) {
+  if (status === "analyzing")
+    return (
+      <span className="inline-flex items-center gap-1.5 text-accent">
+        <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
+        Quality Check
+      </span>
+    );
   if (status === "generating")
     return (
       <span className="inline-flex items-center gap-1.5 text-accent">

@@ -1,5 +1,7 @@
 # Henosis
 
+**Live demo: <https://henosis0.vercel.app>**
+
 A premium AI website builder. Describe what you want — Henosis ships a complete, production-ready site in under a minute. Iterate in chat. Preview live. Export, deploy.
 
 Built with **Next.js 16** (App Router), **TypeScript**, **Tailwind v4**, and **OpenRouter** (Claude / GPT-4o / Gemini) with prompt caching for ~90% input token savings on repeated generations.
@@ -17,7 +19,7 @@ Built with **Next.js 16** (App Router), **TypeScript**, **Tailwind v4**, and **O
 ## Pages
 
 - `/` — landing (navbar, hero, prompt box, examples grid, feature strip, final CTA, footer).
-- `/auth` — sign in / sign up (Google + email, mocked).
+- `/auth` — sign in / sign up via Google OAuth (NextAuth v5).
 - `/projects` — your generated sites.
 - `/profile` — current plan, usage, project counts.
 - `/pricing` — Bronze / Silver / Gold animated tier cards.

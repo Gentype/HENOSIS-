@@ -12,8 +12,16 @@ import { DEFAULT_MODEL } from "./examples";
 interface DraftState {
   prompt: string;
   model: string;
+  /**
+   * Optional manual complexity (2–10) selected by a Silver/Gold user on the
+   * landing page BEFORE submitting. Persisted alongside the prompt so that
+   * users who get redirected through /auth come back with the same choice.
+   * `null` means "let the analyzer decide".
+   */
+  complexityOverride: number | null;
   setPrompt: (p: string) => void;
   setModel: (m: string) => void;
+  setComplexityOverride: (v: number | null) => void;
   reset: () => void;
 }
 
@@ -22,9 +30,17 @@ export const useDraft = create<DraftState>()(
     (set) => ({
       prompt: "",
       model: DEFAULT_MODEL,
+      complexityOverride: null,
       setPrompt: (prompt) => set({ prompt }),
       setModel: (model) => set({ model }),
-      reset: () => set({ prompt: "", model: DEFAULT_MODEL }),
+      setComplexityOverride: (complexityOverride) =>
+        set({ complexityOverride }),
+      reset: () =>
+        set({
+          prompt: "",
+          model: DEFAULT_MODEL,
+          complexityOverride: null,
+        }),
     }),
     {
       name: "henosis:draft:v2",

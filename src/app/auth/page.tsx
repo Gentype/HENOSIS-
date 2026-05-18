@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { Logo } from "@/components/logo";
 import { Aurora, RefractionBeam } from "@/components/aurora";
 import { useUser } from "@/lib/store";
@@ -28,14 +29,23 @@ function AuthInner() {
   const [mode, setMode] = useState<"signin" | "signup">(initialMode);
   const [submitting, setSubmitting] = useState(false);
   const signIn = useUser((s) => s.signIn);
-  const user = useUser((s) => s.user);
+  // The NextAuth session is the canonical source for "is this browser
+  // authenticated right now?" — it's resolved server-side and handed to
+  // SessionProvider as `initialSession`, so it's correct on the very first
+  // client render. The `useUser` zustand store only fills in *after*
+  // `/api/me` resolves, which is too slow to use as the redirect trigger:
+  // a freshly-signed-in user lands on /auth, sees the Google button before
+  // the store hydrates, and ends up sign-in-looping. Watch the session
+  // instead so the bounce happens immediately.
+  const { status: sessionStatus } = useSession();
+  const isAuthenticated = sessionStatus === "authenticated";
 
   useEffect(() => setMode(initialMode), [initialMode]);
 
   // If already signed in, bounce so /auth never strands a logged-in user.
   useEffect(() => {
-    if (user) router.replace(callbackUrl);
-  }, [user, router, callbackUrl]);
+    if (isAuthenticated) router.replace(callbackUrl);
+  }, [isAuthenticated, router, callbackUrl]);
 
   async function doGoogle() {
     if (submitting) return;
