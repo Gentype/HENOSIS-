@@ -1,21 +1,24 @@
 "use client";
 
 import { PromptBox } from "./prompt-box";
-import { Aurora, RefractionBeam } from "./aurora";
+import { Aurora, HourglassBeam } from "./aurora";
 
 export function Hero() {
   return (
     <section className="relative overflow-hidden">
-      {/* Ambient backgrounds — stacked from back to front:
+      {/* Ambient backgrounds — stacked from back to front. The palette is
+          intentionally green-white-black only; the previous rainbow
+          refraction beam was retired in favour of a single dramatic
+          green hourglass / pinch-beam (HourglassBeam).
           1. Original flow stripes + dust + radial + grid for texture (z=0)
-          2. Aurora vivid colour blobs that "punch through" the stripes (z=1)
-          3. Refraction prism beam (rainbow chromatic dispersion) (z=1) */}
+          2. Aurora sage blobs that "punch through" the stripes (z=1)
+          3. Hourglass green pinch-beam — the hero centrepiece (z=2) */}
       <div className="bg-flow-stripes" aria-hidden />
       <div className="bg-flow-dust" aria-hidden />
       <div className="absolute inset-0 bg-radial-spot pointer-events-none" />
       <div className="absolute inset-0 bg-grid pointer-events-none" />
       <Aurora variant="vivid" className="z-[1]" />
-      <RefractionBeam className="z-[1]" />
+      <HourglassBeam className="z-[2]" />
 
       <div className="relative z-[3] mx-auto max-w-7xl px-5 lg:px-8 pt-16 sm:pt-24 lg:pt-32 pb-16 text-center">
         <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-white/10 bg-white/[0.04] backdrop-blur-md text-xs text-muted fade-up">

@@ -258,8 +258,11 @@ function GenerateInner() {
           const override = proj.complexityOverride;
           if (override != null && Number.isFinite(override)) {
             const score = Math.max(2, Math.min(10, Math.round(override)));
+            // Canonical contract: only "html" (≤4) or "react-ts" (≥5).
+            // Legacy "js-modules" / "typescript" used to leak through here
+            // and confused the runtime assembler.
             const stack: ComplexityAnalysis["stack"] =
-              score <= 4 ? "html" : score <= 6 ? "js-modules" : "typescript";
+              score <= 4 ? "html" : "react-ts";
             analysis = {
               ...analysis,
               score,

@@ -47,7 +47,9 @@ export function QualityCheckOverlay({
   const resolvedStack: ComplexityAnalysis["stack"] | undefined = (() => {
     if (override != null && Number.isFinite(override)) {
       const s = Math.max(2, Math.min(10, Math.round(override)));
-      return s <= 4 ? "html" : s <= 6 ? "js-modules" : "typescript";
+      // Canonical contract: only "html" (≤4) or "react-ts" (≥5). Legacy
+      // values used to leak here and produced an inconsistent label.
+      return s <= 4 ? "html" : "react-ts";
     }
     return analysis?.stack;
   })();

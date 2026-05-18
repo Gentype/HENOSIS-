@@ -54,8 +54,16 @@ export function hasReactEntry(files: GenerateResultFile[]): boolean {
   return (
     set.has("src/main.tsx") ||
     set.has("src/main.jsx") ||
+    set.has("src/main.ts") ||
+    set.has("src/main.js") ||
+    set.has("src/index.tsx") ||
+    set.has("src/index.jsx") ||
+    set.has("src/index.ts") ||
+    set.has("src/index.js") ||
     set.has("src/App.tsx") ||
-    set.has("src/App.jsx")
+    set.has("src/App.jsx") ||
+    set.has("App.tsx") ||
+    set.has("App.jsx")
   );
 }
 
@@ -234,6 +242,49 @@ function assembleReactPreview(result: GenerateResult): string {
     }
   }
 
+  // Synthesise a missing entry when only App.tsx (or root-level App.tsx)
+  // exists. This is the #2 cause of "import error" — model emits a tidy
+  // React tree but skips src/main.tsx because the system prompt was clipped
+  // or it copied a Vite project layout that uses `npm run dev` to mount.
+  if (!entry) {
+    const appCandidates = [
+      "src/App.tsx",
+      "src/App.jsx",
+      "App.tsx",
+      "App.jsx",
+    ];
+    let appPath: string | null = null;
+    for (const a of appCandidates) {
+      if (files.has(a)) {
+        appPath = a;
+        break;
+      }
+    }
+    if (appPath) {
+      // Path the synthetic main.tsx will import. Drop the "src/" prefix and
+      // the extension — the runtime resolver tries .tsx/.jsx/.ts/.js.
+      const importTarget = appPath
+        .replace(/^src\//, "./")
+        .replace(/^(?!\.\/)/, "./")
+        .replace(/\.(tsx|jsx|ts|js)$/, "");
+      const synthetic = [
+        `// Synthesised by Henosis preview-assembler — the model omitted`,
+        `// src/main.tsx, so we generated a default mount that imports App.`,
+        `import React from "react";`,
+        `import { createRoot } from "react-dom/client";`,
+        `import App from "${importTarget}";`,
+        ``,
+        `const rootEl = document.getElementById("root");`,
+        `if (rootEl) createRoot(rootEl).render(React.createElement(App));`,
+        ``,
+      ].join("\n");
+      // If App lives at the root, we still want the entry under src/ so the
+      // import resolver finds it. Use src/main.tsx as the synthesised path.
+      sourceMap["src/main.tsx"] = synthetic;
+      entry = "src/main.tsx";
+    }
+  }
+
   // Public document head. The importmap is what makes bare `import React
   // from "react"` work without npm install.
   const importMap = {
@@ -270,7 +321,15 @@ ${css}
   <script type="importmap">
 ${JSON.stringify(importMap, null, 2)}
   </script>
-  <script src="https://unpkg.com/@babel/standalone@${BABEL_VERSION}/babel.min.js"></script>
+  <!-- Babel-standalone with a CDN fallback chain. jsDelivr is the primary
+       choice (better uptime than unpkg in our experience), unpkg is the
+       backup. If the first one errors, the inline fallback below swaps
+       in the second URL synchronously so the runtime loader still sees
+       a populated window.Babel. -->
+  <script
+    src="https://cdn.jsdelivr.net/npm/@babel/standalone@${BABEL_VERSION}/babel.min.js"
+    onerror="(function(){var s=document.createElement('script');s.src='https://unpkg.com/@babel/standalone@${BABEL_VERSION}/babel.min.js';document.head.appendChild(s);})()"
+  ></script>
 </head>
 <body>
   <div id="root"></div>
