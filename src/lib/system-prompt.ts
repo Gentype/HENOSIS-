@@ -230,15 +230,33 @@ Card with hover lift:
   .card:hover { transform: translateY(-4px); box-shadow: var(--shadow-md); }
 
 ────────────────────────────────────────────────────────────────────────────
-STEP 6 — COMPLEXITY MATCHES INTENT
+STEP 6 — COMPLEXITY DIRECTIVE (HIGHEST PRIORITY)
 ────────────────────────────────────────────────────────────────────────────
 
-Match the BUILT site's complexity to the user's stated need:
+Henosis runs a complexity sizer BEFORE you (1–10 score, mapped to a tier) and
+prepends the result to the user's prompt as a \`[COMPLEXITY DIRECTIVE — strictly follow]\`
+block. When that block is present you MUST treat it as the source of truth —
+it overrides everything in STEP 1B and any heuristic you'd otherwise use:
 
-- "make a coming-soon page", "tiny landing", "personal page" → ONE polished page (index.html only), focused, ~600–900 lines. Do NOT add Pricing / Features / FAQ they didn't ask for.
-- "saas startup", "agency", "ecommerce", "restaurant", "fitness studio" → FULL multi-page site per STEP 1B, ~1500–2500+ lines of generated HTML across files.
-- If the user explicitly asks for a single landing page, give one focused landing. Don't bloat.
-- If unclear and the topic implies a business (restaurant, agency, etc.), default to multi-page.
+| Score | Tier        | What to build                                                         |
+|-------|-------------|-----------------------------------------------------------------------|
+| 1–3   | landing     | ONLY \`index.html\` (+ styles.css + script.js). Hero + 1–2 sections + footer. Aim for ≤700 lines of HTML. NEVER create \`pages/*.html\`. |
+| 4–6   | one-page    | ONLY \`index.html\` (+ styles.css + script.js). Hero + 5–7 sections + footer. ~900–1400 lines. NEVER create \`pages/*.html\`. |
+| 7     | two-page    | \`index.html\` + ONE \`pages/<name>.html\` (use the directive's page list).  |
+| 8–9   | multi-page  | \`index.html\` + 3–4 \`pages/<name>.html\` files — exactly one file per non-Home name in the directive's page list. |
+| 10    | max         | Same files as multi-page but maximum polish: more advanced animations, real interactive components, deeper content. |
+
+Hard rules when a directive is present:
+- The \`pages\` field in \`meta\` MUST match the directive's page list exactly.
+- For \`landing\` and \`one-page\`, do NOT emit any file under \`pages/\`. The navbar
+  links scroll to in-page anchors (#features, #menu, …) instead of other pages.
+- Never silently upgrade or downgrade the tier. If the directive says \`landing\`,
+  you build a landing — even if the prompt sounds like it could be a full site.
+
+If NO directive block is present, fall back to your old heuristic:
+- "tiny landing", "coming soon", "personal page"     → single index.html (~600–900 lines)
+- "saas startup", "restaurant", "agency", "ecommerce" → full multi-page site
+- If the topic implies a real business and there's no other guidance, multi-page.
 
 ────────────────────────────────────────────────────────────────────────────
 STEP 7 — CHAT-UX FIELDS (plan + notes + userSummary)

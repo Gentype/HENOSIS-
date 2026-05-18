@@ -547,6 +547,159 @@ a,
     0 22px 60px -10px rgba(255, 122, 122, 0.25) !important;
 }
 
+/* ───────────────────────────────────────────────────────────────
+   Live-mode badge (preview pane / center-of-screen language tile).
+   Soft ambient rings + a slow diagonal shine across the badge.
+   ─────────────────────────────────────────────────────────────── */
+@keyframes lb-ring-pulse {
+  0%, 100% {
+    transform: scale(0.92);
+    opacity: 0.5;
+  }
+  50% {
+    transform: scale(1.06);
+    opacity: 0.95;
+  }
+}
+.lb-ring {
+  position: absolute;
+  border-radius: 9999px;
+  border: 1px solid rgba(184, 227, 201, 0.18);
+  pointer-events: none;
+  animation: lb-ring-pulse 4s ease-in-out infinite;
+}
+.lb-ring-1 {
+  width: clamp(220px, 60%, 360px);
+  aspect-ratio: 1 / 1;
+  animation-delay: 0s;
+}
+.lb-ring-2 {
+  width: clamp(160px, 45%, 280px);
+  aspect-ratio: 1 / 1;
+  border-color: rgba(184, 227, 201, 0.28);
+  animation-delay: 0.5s;
+}
+.lb-ring-3 {
+  width: clamp(110px, 30%, 200px);
+  aspect-ratio: 1 / 1;
+  border-color: rgba(184, 227, 201, 0.42);
+  animation-delay: 1s;
+}
+@keyframes lb-badge-pop {
+  0% {
+    transform: scale(0.85) rotate(-3deg);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.04) rotate(0deg);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1) rotate(0deg);
+  }
+}
+@keyframes lb-badge-float {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+}
+.lb-badge {
+  animation:
+    lb-badge-pop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) both,
+    lb-badge-float 3.6s ease-in-out 0.45s infinite;
+  will-change: transform;
+}
+@keyframes lb-badge-shine {
+  0% {
+    transform: translateX(-120%) skewX(-18deg);
+    opacity: 0;
+  }
+  40% {
+    opacity: 0.6;
+  }
+  100% {
+    transform: translateX(220%) skewX(-18deg);
+    opacity: 0;
+  }
+}
+.lb-badge-shine {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.35) 50%,
+    transparent 100%
+  );
+  background-size: 40% 100%;
+  background-repeat: no-repeat;
+  background-position: -50% 50%;
+  border-radius: inherit;
+  animation: lb-badge-shine 2.6s ease-in-out infinite;
+}
+
+/* ───────────────────────────────────────────────────────────────
+   ASCII-hands backdrop (home page).
+   Two zero-network green ASCII art hands reach in from the left
+   and right of the hero. Pure CSS — no images, no canvas.
+   ─────────────────────────────────────────────────────────────── */
+@keyframes hand-rise {
+  0%, 100% {
+    transform: translateY(0) rotate(var(--rot, 0deg));
+    opacity: var(--op, 0.55);
+  }
+  50% {
+    transform: translateY(-10px) rotate(calc(var(--rot, 0deg) + 0.5deg));
+    opacity: calc(var(--op, 0.55) + 0.12);
+  }
+}
+.ascii-hand {
+  position: absolute;
+  font-family: ui-monospace, SFMono-Regular, Menlo, "Courier New", monospace;
+  font-size: clamp(8px, 0.9vw, 11px);
+  line-height: 1.05;
+  letter-spacing: 0.04em;
+  color: rgba(109, 217, 158, 0.9);
+  white-space: pre;
+  pointer-events: none;
+  user-select: none;
+  text-shadow:
+    0 0 8px rgba(109, 217, 158, 0.45),
+    0 0 22px rgba(109, 217, 158, 0.28),
+    0 0 60px rgba(184, 227, 201, 0.18);
+  filter: blur(0.2px);
+  z-index: 0;
+  will-change: transform, opacity;
+  animation: hand-rise 8s ease-in-out infinite;
+}
+.ascii-hand--left {
+  left: -2vw;
+  bottom: -2vh;
+  --rot: -6deg;
+  --op: 0.62;
+  text-align: left;
+}
+.ascii-hand--right {
+  right: -2vw;
+  bottom: -2vh;
+  --rot: 6deg;
+  --op: 0.62;
+  text-align: right;
+  animation-delay: -3s;
+}
+@media (max-width: 720px) {
+  .ascii-hand {
+    font-size: 7px;
+    opacity: 0.5;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ascii-hand {
+    animation: none;
+  }
+}
+
 /* nice scrollbars */
 .scroll-soft::-webkit-scrollbar {
   width: 10px;

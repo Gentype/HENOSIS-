@@ -62,6 +62,13 @@ export interface Project {
   updatedAt: number;
   result: GenerateResult | null;
   history: ChatMessage[];
+  /**
+   * Complexity assessment used for the initial build. Set BEFORE generation
+   * starts so the chat can show a "thinking" bubble with score + plan, and
+   * so the architect respects it. Optional for backwards compatibility with
+   * projects in localStorage from before complexity scoring landed.
+   */
+  assessment?: import("./complexity").Assessment;
 }
 
 export type Plan = "free" | "pro" | "ultra";

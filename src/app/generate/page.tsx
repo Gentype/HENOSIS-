@@ -8,9 +8,15 @@ import { ChatPanel } from "@/components/generate/chat-panel";
 import { FileTree } from "@/components/generate/file-tree";
 import { CodeViewer } from "@/components/generate/code-viewer";
 import { PreviewPane } from "@/components/generate/preview-pane";
-import { useProjects, useUser } from "@/lib/store";
+import { useDraft, useProjects, useUser } from "@/lib/store";
 import { DEFAULT_MODEL } from "@/lib/examples";
 import type { GenerateResult, Project } from "@/lib/types";
+import {
+  type Assessment,
+  COMPLEXITY_TIERS,
+  canUseManualComplexity,
+  scoreToTier,
+} from "@/lib/complexity";
 import { Loader2, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -43,6 +49,8 @@ function GenerateInner() {
   const updateMessage = useProjects((s) => s.updateMessage);
   const setCurrent = useProjects((s) => s.setCurrent);
   const incrementUsage = useUser((s) => s.incrementUsage);
+  const user = useUser((s) => s.user);
+  const draftComplexity = useDraft((s) => s.complexity);
 
   const [hydrated, setHydrated] = useState(false);
   useEffect(() => setHydrated(true), []);
@@ -80,10 +88,62 @@ function GenerateInner() {
         role: "assistant",
         content: opts?.followUp
           ? "Reading the current site…"
-          : "Reading your prompt and choosing a direction…",
+          : "Sizing up your prompt…",
         status: "streaming",
         createdAt: Date.now(),
       });
+
+      // ──────────────────────────────────────────────────────────────────
+      // Step 0: complexity assessment (skipped for follow-up edits — the
+      // edit endpoint preserves the original site's shape).
+      //
+      // For Silver+ users on manual mode, we skip the network call entirely
+      // and synthesise an assessment from their explicit score. Otherwise
+      // we ask /api/assess to score the prompt 1–10. If the assess call
+      // fails we DO NOT block generation — we just generate without a
+      // directive, falling back to the architect's own heuristics.
+      // ──────────────────────────────────────────────────────────────────
+      let assessment: Assessment | undefined;
+      if (!opts?.followUp) {
+        const manualEnabled = canUseManualComplexity(user?.plan ?? "free");
+        if (manualEnabled && typeof draftComplexity === "number") {
+          const tier = scoreToTier(draftComplexity);
+          assessment = {
+            score: draftComplexity,
+            tier,
+            pages: COMPLEXITY_TIERS[tier].defaultPages,
+            rationale: `Manual override — you picked ${draftComplexity}/10.`,
+            source: "manual",
+          };
+          updateMessage(project.id, assistantMsgId, {
+            content: renderAssessmentLine(assessment),
+            status: "streaming",
+          });
+        } else {
+          try {
+            const ares = await fetch("/api/assess", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ prompt, model: project.model }),
+            });
+            if (ares.ok) {
+              const data = (await ares.json()) as { assessment: Assessment };
+              if (data?.assessment) {
+                assessment = data.assessment;
+                updateMessage(project.id, assistantMsgId, {
+                  content: renderAssessmentLine(assessment),
+                  status: "streaming",
+                });
+              }
+            }
+          } catch {
+            /* swallow — assessment is optional, we still generate */
+          }
+        }
+        if (assessment) {
+          patch(project.id, { assessment });
+        }
+      }
 
       // Track which files the model has started writing so the chat can show
       // an honest, live "writing styles.css…" status (no fake narration).
@@ -101,7 +161,11 @@ function GenerateInner() {
               model: project.model,
               priorFiles: project.result?.files ?? [],
             }
-          : { prompt, model: project.model };
+          : {
+              prompt,
+              model: project.model,
+              ...(assessment ? { assessment } : {}),
+            };
         const res = await fetch(endpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -202,7 +266,15 @@ function GenerateInner() {
         setPartial("");
       }
     },
-    [project, appendMessage, patch, updateMessage, incrementUsage],
+    [
+      project,
+      appendMessage,
+      patch,
+      updateMessage,
+      incrementUsage,
+      user?.plan,
+      draftComplexity,
+    ],
   );
 
   // Autostart on first load if requested
@@ -385,6 +457,24 @@ function GenerateInner() {
       </div>
     </div>
   );
+}
+
+/**
+ * Build the "Sized at 6/10 · Polished one-pager — Home" line that lands in
+ * the chat as soon as the assess endpoint comes back, BEFORE the architect
+ * even starts. Uses the rationale verbatim if it fits, otherwise the tier
+ * label as a fallback.
+ */
+function renderAssessmentLine(a: Assessment): string {
+  const info = COMPLEXITY_TIERS[a.tier];
+  const pages =
+    a.pages.length === 1
+      ? a.pages[0]
+      : `${a.pages.length} pages (${a.pages.join(", ")})`;
+  const source = a.source === "manual" ? " · manual" : "";
+  const rationale = a.rationale?.trim();
+  const detail = rationale && rationale.length < 140 ? ` — ${rationale}` : "";
+  return `Sized at ${a.score}/10${source} · ${info.label} · ${pages}${detail}`;
 }
 
 function inferVerb(path: string): string {

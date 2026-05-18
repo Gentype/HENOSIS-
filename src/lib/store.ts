@@ -9,11 +9,20 @@ import {
 import type { ChatMessage, Plan, Project, User } from "./types";
 import { DEFAULT_MODEL } from "./examples";
 
+/**
+ * "auto" → use the AI's complexity assessment.
+ * 1..10  → user (Silver+) picked a manual score; skip the AI assessment.
+ */
+export type ComplexityChoice = "auto" | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
+
 interface DraftState {
   prompt: string;
   model: string;
+  /** "auto" by default; only Silver+ UI lets the user pick a number. */
+  complexity: ComplexityChoice;
   setPrompt: (p: string) => void;
   setModel: (m: string) => void;
+  setComplexity: (c: ComplexityChoice) => void;
   reset: () => void;
 }
 
@@ -22,9 +31,12 @@ export const useDraft = create<DraftState>()(
     (set) => ({
       prompt: "",
       model: DEFAULT_MODEL,
+      complexity: "auto",
       setPrompt: (prompt) => set({ prompt }),
       setModel: (model) => set({ model }),
-      reset: () => set({ prompt: "", model: DEFAULT_MODEL }),
+      setComplexity: (complexity) => set({ complexity }),
+      reset: () =>
+        set({ prompt: "", model: DEFAULT_MODEL, complexity: "auto" }),
     }),
     {
       name: "henosis:draft:v2",

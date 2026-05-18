@@ -5,8 +5,10 @@ import { useState, useRef, useEffect } from "react";
 import { ArrowUp, Sparkles, Loader2, Wand2 } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { ModelSelector } from "./model-selector";
+import { ComplexityPicker } from "./complexity-picker";
 import { useDraft, useProjects, useUser } from "@/lib/store";
 import { cn } from "@/lib/utils";
+import { canUseManualComplexity } from "@/lib/complexity";
 
 interface PromptBoxProps {
   large?: boolean;
@@ -30,11 +32,14 @@ export function PromptBox({
   const router = useRouter();
   const draftPrompt = useDraft((s) => s.prompt);
   const draftModel = useDraft((s) => s.model);
+  const draftComplexity = useDraft((s) => s.complexity);
   const setDraftPrompt = useDraft((s) => s.setPrompt);
   const setDraftModel = useDraft((s) => s.setModel);
+  const setDraftComplexity = useDraft((s) => s.setComplexity);
   const upsertProject = useProjects((s) => s.upsert);
   const setCurrentProject = useProjects((s) => s.setCurrent);
   const user = useUser((s) => s.user);
+  const manualComplexityEnabled = canUseManualComplexity(user?.plan ?? "free");
   // Use the NextAuth session for the binary "is this browser signed in?"
   // check. It's SSR-resolved (see `Providers` / `initialSession`) so it's
   // already correct on the first client render — unlike `useUser.user`,
@@ -219,6 +224,13 @@ export function PromptBox({
 
       <div className="mt-3 flex items-center gap-2 flex-wrap">
         <ModelSelector value={draftModel} onChange={setDraftModel} compact={!large} />
+
+        <ComplexityPicker
+          value={draftComplexity}
+          onChange={setDraftComplexity}
+          enabled={manualComplexityEnabled}
+          compact={!large}
+        />
 
         <button
           type="button"

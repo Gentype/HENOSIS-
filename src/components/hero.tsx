@@ -1,16 +1,19 @@
 "use client";
 
 import { PromptBox } from "./prompt-box";
+import { AsciiHands } from "./ascii-hands";
+import { CodeParticles } from "./code-particles";
 
 export function Hero() {
   return (
-    <section className="relative overflow-hidden">
-      {/* Ambient backgrounds: matte-sage vertical flow stripes (top & bottom mirror)
-          + drifting dust particles + the existing soft radial spot/grid. */}
-      <div className="bg-flow-stripes" aria-hidden />
-      <div className="bg-flow-dust" aria-hidden />
+    <section className="relative overflow-hidden min-h-[60vh]">
+      {/* Backdrop, three layers, all behind the foreground (z < 2):
+            1. Soft radial spot — kept, it grounds the headline.
+            2. Green ASCII hands reaching up from the bottom corners.
+            3. Mouse-interactive gray code particles floating up. */}
       <div className="absolute inset-0 bg-radial-spot pointer-events-none" />
-      <div className="absolute inset-0 bg-grid pointer-events-none" />
+      <AsciiHands />
+      <CodeParticles />
 
       <div className="relative z-[2] mx-auto max-w-7xl px-5 lg:px-8 pt-16 sm:pt-24 lg:pt-32 pb-16 text-center">
         <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-border bg-surface/60 backdrop-blur text-xs text-muted fade-up">

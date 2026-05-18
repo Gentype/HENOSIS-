@@ -25,6 +25,11 @@ import {
   pickRelevantExamples,
   type BuiltInExample,
 } from "./builtin-examples";
+import {
+  COMPLEXITY_TIERS,
+  complexityDirective,
+  type Assessment,
+} from "./complexity";
 import type { GenerateResult, GenerateResultFile } from "./types";
 
 /**
@@ -35,6 +40,8 @@ import type { GenerateResult, GenerateResultFile } from "./types";
  */
 export interface SystemOverride {
   systemText?: string;
+  /** Skip few-shot examples (saves tokens / latency for tiny builds). */
+  skipFewShot?: boolean;
 }
 
 const OPENROUTER_API = "https://openrouter.ai/api/v1/chat/completions";
@@ -59,6 +66,8 @@ interface BuildRequestArgs {
   priorFiles?: GenerateResultFile[];
   stream?: boolean;
   systemText?: string;
+  assessment?: Assessment;
+  skipFewShot?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -187,22 +196,44 @@ function buildBody({
   priorFiles,
   stream,
   systemText,
+  assessment,
+  skipFewShot,
 }: BuildRequestArgs): string {
   // When the caller supplies a specialised system text (edit / remix), we
   // honour it and skip few-shot examples — those examples target the generic
   // architect mode.
   const isOverride = Boolean(systemText);
+  // Low-complexity builds (landing, one-page) skip few-shot examples so the
+  // architect spends less time / tokens before emitting output — matches the
+  // user spec: "если меньше 4 то Он будет делать очень быстро".
+  const tierSkip =
+    assessment != null && COMPLEXITY_TIERS[assessment.tier].skipFewShot;
+  const dropExamples = isOverride || skipFewShot === true || tierSkip;
+
+  // Prepend the complexity directive to the user prompt so the architect
+  // knows how big a site to build. Kept OUT of the cached system block so
+  // the cache stays warm across requests with different scores.
+  const effectivePrompt = assessment
+    ? `${complexityDirective(assessment)}\n\n---\n\n${prompt}`
+    : prompt;
+
   const messages = buildMessagesForGeneration({
     systemPrompt: systemText ?? SYSTEM_PROMPT,
-    examples: isOverride ? [] : BUILT_IN_EXAMPLES,
-    maxExamples: isOverride ? 0 : 2,
+    examples: dropExamples ? [] : BUILT_IN_EXAMPLES,
+    maxExamples: dropExamples ? 0 : 2,
     priorFiles,
-    currentUserPrompt: prompt,
+    currentUserPrompt: effectivePrompt,
   });
+
+  // The architect's output budget scales with tier: a 1–3 landing doesn't
+  // need 16k tokens of headroom (it's wasted latency).
+  const maxTokens = assessment
+    ? COMPLEXITY_TIERS[assessment.tier].maxTokens
+    : 16000;
 
   return JSON.stringify({
     model,
-    max_tokens: 16000,
+    max_tokens: maxTokens,
     messages,
     stream: stream ?? false,
     response_format: { type: "json_object" },
@@ -224,11 +255,17 @@ function authHeaders(): HeadersInit {
   };
 }
 
+export interface GenerateOptions {
+  /** Complexity assessment to steer the architect. */
+  assessment?: Assessment;
+}
+
 export async function generateSite(
   prompt: string,
   model: string,
   priorFiles?: GenerateResultFile[],
   override?: SystemOverride,
+  opts?: GenerateOptions,
 ): Promise<GenerateResult> {
   const res = await fetch(OPENROUTER_API, {
     method: "POST",
@@ -239,6 +276,8 @@ export async function generateSite(
       priorFiles,
       stream: false,
       systemText: override?.systemText,
+      skipFewShot: override?.skipFewShot,
+      assessment: opts?.assessment,
     }),
   });
 
@@ -265,6 +304,7 @@ export async function generateSiteStream(
   priorFiles: GenerateResultFile[] | undefined,
   callbacks: StreamCallbacks,
   override?: SystemOverride,
+  opts?: GenerateOptions,
 ): Promise<GenerateResult> {
   callbacks.onMeta?.({ model });
 
@@ -277,6 +317,8 @@ export async function generateSiteStream(
       priorFiles,
       stream: true,
       systemText: override?.systemText,
+      skipFewShot: override?.skipFewShot,
+      assessment: opts?.assessment,
     }),
   });
 
