@@ -24,6 +24,13 @@
   --silver-glow: rgba(199, 201, 209, 0.45);
   --gold: #f0c861;
   --gold-glow: rgba(240, 200, 97, 0.55);
+
+  /* Aurora palette — complements the sage-green brand. Used in the
+     ambient background blobs and refraction beams. */
+  --aurora-violet: #8b5cf6;
+  --aurora-cyan: #22d3ee;
+  --aurora-magenta: #f0abfc;
+  --aurora-sage: #b8e3c9;
 }
 
 @theme inline {
@@ -88,6 +95,248 @@ a,
   background:
     radial-gradient(700px circle at 50% -10%, rgba(184, 227, 201, 0.18), transparent 60%),
     radial-gradient(500px circle at 90% 110%, rgba(184, 227, 201, 0.08), transparent 60%);
+}
+
+/* ───────────────────────────────────────────────────────────────
+   Aurora — full-bleed ambient glow.
+   Four heavily-blurred radial blobs in the brand palette + violet +
+   cyan + magenta, blended with screen so the colours soften into
+   the matte black instead of looking neon. Each blob drifts on its
+   own axis/speed so the result feels alive but never busy.
+   ─────────────────────────────────────────────────────────────── */
+.aurora {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 0;
+  --aurora-amp: 1; /* turned down on small screens / reduced motion */
+}
+.aurora__blob {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(70px);
+  /* plus-lighter (additive) works better than screen on pure black —
+     colour saturation reads correctly instead of washing out. */
+  mix-blend-mode: plus-lighter;
+  will-change: transform;
+  opacity: calc(0.55 * var(--aurora-amp));
+}
+.aurora__blob--sage {
+  width: 70vw;
+  height: 70vw;
+  left: -15vw;
+  top: -20vw;
+  background: radial-gradient(circle at 50% 50%, var(--aurora-sage), transparent 65%);
+  animation: aurora-drift-1 22s ease-in-out infinite alternate;
+}
+.aurora__blob--violet {
+  width: 65vw;
+  height: 65vw;
+  right: -20vw;
+  top: 0vw;
+  background: radial-gradient(circle at 50% 50%, var(--aurora-violet), transparent 62%);
+  animation: aurora-drift-2 26s ease-in-out infinite alternate;
+  opacity: calc(0.7 * var(--aurora-amp));
+}
+.aurora__blob--cyan {
+  width: 60vw;
+  height: 60vw;
+  left: 5vw;
+  bottom: -20vw;
+  background: radial-gradient(circle at 50% 50%, var(--aurora-cyan), transparent 62%);
+  animation: aurora-drift-3 30s ease-in-out infinite alternate;
+  opacity: calc(0.5 * var(--aurora-amp));
+}
+.aurora__blob--magenta {
+  width: 55vw;
+  height: 55vw;
+  right: 0vw;
+  bottom: -15vw;
+  background: radial-gradient(circle at 50% 50%, var(--aurora-magenta), transparent 60%);
+  animation: aurora-drift-4 34s ease-in-out infinite alternate;
+  opacity: calc(0.4 * var(--aurora-amp));
+}
+/* Vivid variant: pumped, used on the home hero + final CTA. */
+.aurora--vivid .aurora__blob {
+  opacity: calc(0.8 * var(--aurora-amp));
+  filter: blur(60px);
+}
+.aurora--vivid .aurora__blob--violet { opacity: calc(0.95 * var(--aurora-amp)); }
+.aurora--vivid .aurora__blob--magenta { opacity: calc(0.65 * var(--aurora-amp)); }
+/* Tier variants — single dominant tinted blob behind a tier card. */
+.aurora--tier-bronze {
+  background: radial-gradient(circle at 50% 50%, rgba(192, 133, 82, 0.35), transparent 65%);
+  filter: blur(60px);
+  position: absolute;
+  inset: -20%;
+  pointer-events: none;
+  mix-blend-mode: screen;
+  animation: aurora-pulse 6s ease-in-out infinite;
+}
+.aurora--tier-silver {
+  background: radial-gradient(circle at 50% 50%, rgba(199, 201, 209, 0.4), transparent 65%);
+  filter: blur(60px);
+  position: absolute;
+  inset: -20%;
+  pointer-events: none;
+  mix-blend-mode: screen;
+  animation: aurora-pulse 5s ease-in-out infinite;
+}
+.aurora--tier-gold {
+  background: radial-gradient(circle at 50% 50%, rgba(240, 200, 97, 0.5), transparent 65%);
+  filter: blur(60px);
+  position: absolute;
+  inset: -20%;
+  pointer-events: none;
+  mix-blend-mode: screen;
+  animation: aurora-pulse 4s ease-in-out infinite;
+}
+@keyframes aurora-drift-1 {
+  0%   { transform: translate3d(0, 0, 0) scale(1); }
+  100% { transform: translate3d(8vw, 6vw, 0) scale(1.1); }
+}
+@keyframes aurora-drift-2 {
+  0%   { transform: translate3d(0, 0, 0) scale(1); }
+  100% { transform: translate3d(-7vw, 9vw, 0) scale(1.08); }
+}
+@keyframes aurora-drift-3 {
+  0%   { transform: translate3d(0, 0, 0) scale(0.95); }
+  100% { transform: translate3d(10vw, -8vw, 0) scale(1.12); }
+}
+@keyframes aurora-drift-4 {
+  0%   { transform: translate3d(0, 0, 0) scale(1.05); }
+  100% { transform: translate3d(-9vw, -6vw, 0) scale(0.95); }
+}
+@keyframes aurora-pulse {
+  0%, 100% { opacity: 0.55; transform: scale(1); }
+  50%      { opacity: 0.9;  transform: scale(1.08); }
+}
+@media (max-width: 640px) {
+  .aurora { --aurora-amp: 0.55; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .aurora__blob,
+  .aurora--tier-bronze,
+  .aurora--tier-silver,
+  .aurora--tier-gold {
+    animation: none;
+  }
+}
+
+/* ───────────────────────────────────────────────────────────────
+   Glass card — frosted panel with a subtle inner highlight ring.
+   Mimics the "iOS 26 glass" / Apple Vision visual: soft blurred
+   tint, hairline white edge that catches the aurora behind it,
+   crisp inner ring for depth.
+   ─────────────────────────────────────────────────────────────── */
+.glass {
+  position: relative;
+  background-color: rgba(255, 255, 255, 0.025);
+  backdrop-filter: blur(22px) saturate(140%);
+  -webkit-backdrop-filter: blur(22px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.03),
+    0 24px 60px -22px rgba(0, 0, 0, 0.55);
+}
+.glass::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.08) 0%,
+    rgba(255, 255, 255, 0) 40%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  pointer-events: none;
+}
+.glass-strong {
+  background-color: rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(32px) saturate(160%);
+  -webkit-backdrop-filter: blur(32px) saturate(160%);
+}
+
+/* ───────────────────────────────────────────────────────────────
+   Refraction beam — a chromatic dispersion "prism" effect.
+   Six thin angled bars stacked with screen-blend in rainbow order,
+   heavy blur, very low opacity. Drifts across the hero slowly.
+   ─────────────────────────────────────────────────────────────── */
+.refraction-beam {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 0;
+}
+.refraction-beam__bar {
+  position: absolute;
+  width: 220vw;
+  height: 4vw;
+  left: -60vw;
+  transform-origin: 50% 50%;
+  transform: rotate(-18deg);
+  filter: blur(36px);
+  mix-blend-mode: screen;
+  opacity: 0.55;
+  will-change: transform, opacity;
+}
+.refraction-beam__bar:nth-child(1) { top: 18%; background: linear-gradient(90deg, transparent, #ff5d5d, transparent); animation: beam-drift 18s ease-in-out infinite; }
+.refraction-beam__bar:nth-child(2) { top: 23%; background: linear-gradient(90deg, transparent, #ffae3d, transparent); animation: beam-drift 19s -2s ease-in-out infinite; }
+.refraction-beam__bar:nth-child(3) { top: 28%; background: linear-gradient(90deg, transparent, #f0c861, transparent); animation: beam-drift 20s -4s ease-in-out infinite; }
+.refraction-beam__bar:nth-child(4) { top: 33%; background: linear-gradient(90deg, transparent, #b8e3c9, transparent); animation: beam-drift 21s -6s ease-in-out infinite; opacity: 0.7; }
+.refraction-beam__bar:nth-child(5) { top: 38%; background: linear-gradient(90deg, transparent, #22d3ee, transparent); animation: beam-drift 22s -8s ease-in-out infinite; }
+.refraction-beam__bar:nth-child(6) { top: 43%; background: linear-gradient(90deg, transparent, #8b5cf6, transparent); animation: beam-drift 23s -10s ease-in-out infinite; }
+@keyframes beam-drift {
+  0%, 100% { transform: rotate(-18deg) translate3d(-8vw, 0, 0); opacity: 0.35; }
+  50%      { transform: rotate(-18deg) translate3d(8vw, 0, 0);  opacity: 0.65; }
+}
+@media (max-width: 640px) {
+  .refraction-beam__bar { height: 9vw; filter: blur(28px); opacity: 0.45; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .refraction-beam__bar { animation: none; }
+}
+
+/* ───────────────────────────────────────────────────────────────
+   Magnetic hover — a button that tilts slightly toward the mouse.
+   Pure CSS fallback: a 4° tilt on hover. JS upgrade is in
+   <MagneticHover /> if needed later.
+   ─────────────────────────────────────────────────────────────── */
+.tilt-hover {
+  transition: transform 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.tilt-hover:hover {
+  transform: translateY(-2px) scale(1.015);
+}
+
+/* Tier price digit shimmer — replaces flat $19 / $49 with a soft
+   metal sheen that sweeps once on mount + on hover. */
+@keyframes tier-price-sheen {
+  0%   { background-position: -120% 50%; }
+  100% { background-position: 220% 50%; }
+}
+.tier-price-bronze,
+.tier-price-silver,
+.tier-price-gold {
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  background-size: 220% auto;
+  animation: tier-price-sheen 6s linear infinite;
+}
+.tier-price-bronze {
+  background-image: linear-gradient(100deg, #b46d3d 0%, #e6b385 45%, #ffffff 55%, #c08552 70%, #8a5a32 100%);
+}
+.tier-price-silver {
+  background-image: linear-gradient(100deg, #8e9098 0%, #d8dae0 45%, #ffffff 55%, #c7c9d1 70%, #707279 100%);
+}
+.tier-price-gold {
+  background-image: linear-gradient(100deg, #b18a2c 0%, #f6db8e 45%, #ffffff 55%, #f0c861 70%, #9d7320 100%);
 }
 
 /* ───────────────────────────────────────────────────────────────

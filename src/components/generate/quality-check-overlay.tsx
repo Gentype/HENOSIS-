@@ -220,6 +220,7 @@ export function QualityCheckOverlay({
 
 function stackLabel(stack?: ComplexityAnalysis["stack"]): string {
   if (stack === "typescript") return "TypeScript project";
+  if (stack === "react-ts") return "React + TypeScript";
   if (stack === "js-modules") return "JavaScript modules";
   if (stack === "html") return "Static HTML";
   return "—";

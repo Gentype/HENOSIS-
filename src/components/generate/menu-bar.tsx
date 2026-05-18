@@ -38,7 +38,7 @@ interface MenuBarProps {
   /** Short tier label, e.g. "Multi-page clone". */
   complexityTier?: string;
   /** Stack the model is building against. */
-  complexityStack?: "html" | "js-modules" | "typescript";
+  complexityStack?: "html" | "react-ts" | "js-modules" | "typescript";
 }
 
 export function MenuBar({
@@ -344,7 +344,7 @@ function ComplexityPill({
 }: {
   score: number;
   tier?: string;
-  stack?: "html" | "js-modules" | "typescript";
+  stack?: "html" | "react-ts" | "js-modules" | "typescript";
 }) {
   const title = [
     tier ? `Tier: ${tier}` : null,

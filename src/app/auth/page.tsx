@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { Logo } from "@/components/logo";
+import { Aurora, RefractionBeam } from "@/components/aurora";
 import { useUser } from "@/lib/store";
 import { Loader2 } from "lucide-react";
 
@@ -58,15 +59,18 @@ function AuthInner() {
   }
 
   return (
-    <main className="min-h-screen grid lg:grid-cols-2">
+    <main className="relative min-h-screen grid lg:grid-cols-2 overflow-hidden">
+      {/* Site-wide aurora behind both panels */}
+      <Aurora variant="subtle" />
+
       {/* Left — form */}
-      <div className="flex flex-col p-8 lg:p-12">
+      <div className="relative z-[2] flex flex-col p-8 lg:p-12">
         <Link href="/" className="self-start">
           <Logo size="md" />
         </Link>
 
         <div className="flex-1 flex items-center">
-          <div className="w-full max-w-sm mx-auto">
+          <div className="glass relative w-full max-w-sm mx-auto rounded-3xl p-8">
             <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight text-foreground">
               {mode === "signin" ? "Welcome back" : "Create your account"}
             </h1>
@@ -80,7 +84,7 @@ function AuthInner() {
               type="button"
               onClick={doGoogle}
               disabled={submitting}
-              className="mt-8 w-full inline-flex items-center justify-center gap-3 rounded-xl border border-border bg-surface hover:bg-elevated transition-colors py-3 text-sm font-medium disabled:opacity-60"
+              className="relative z-[2] tilt-hover mt-8 w-full inline-flex items-center justify-center gap-3 rounded-xl border border-white/10 bg-white/[0.04] hover:bg-white/[0.08] backdrop-blur-md transition-colors py-3 text-sm font-medium disabled:opacity-60"
             >
               {submitting ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
@@ -111,7 +115,8 @@ function AuthInner() {
       </div>
 
       {/* Right — visual */}
-      <div className="hidden lg:flex relative items-center justify-center bg-radial-spot border-l border-border overflow-hidden">
+      <div className="hidden lg:flex relative z-[2] items-center justify-center bg-radial-spot border-l border-border overflow-hidden">
+        <RefractionBeam />
         <div className="absolute inset-0 bg-grid" />
         <div className="relative max-w-md p-10 text-center">
           <div className="hero-headline text-5xl font-semibold tracking-tight leading-tight">
@@ -121,14 +126,22 @@ function AuthInner() {
             Henosis writes the design, code and copy so you can launch the same day.
           </p>
           <div className="mt-10 grid grid-cols-3 gap-3">
-            {["#b8e3c9", "#6dd99e", "#f0c861"].map((c) => (
+            {[
+              { color: "#c08552", label: "Bronze", className: "text-bronze" },
+              { color: "#c7c9d1", label: "Silver", className: "text-silver" },
+              { color: "#f0c861", label: "Gold", className: "text-gold" },
+            ].map((t) => (
               <div
-                key={c}
-                className="aspect-square rounded-2xl border border-border"
+                key={t.label}
+                className="relative aspect-square rounded-2xl border border-white/10 overflow-hidden flex items-end p-2.5"
                 style={{
-                  background: `radial-gradient(120% 120% at 20% 20%, ${c}, transparent 60%), #0a0a0a`,
+                  background: `radial-gradient(120% 120% at 20% 20%, ${t.color}, transparent 60%), #0a0a0a`,
                 }}
-              />
+              >
+                <span className={`text-[10px] uppercase tracking-wider font-medium ${t.className}`}>
+                  {t.label}
+                </span>
+              </div>
             ))}
           </div>
         </div>
