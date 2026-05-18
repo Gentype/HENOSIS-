@@ -4,6 +4,7 @@ import { useMemo, useRef, useState } from "react";
 import type { GenerateResult } from "@/lib/types";
 import { Loader2, Monitor, Smartphone, Tablet, ExternalLink } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { assemblePreview } from "@/lib/preview-assembler";
 
 interface PreviewPaneProps {
   result: GenerateResult | null;
@@ -23,11 +24,7 @@ export function PreviewPane({ result, generating, partialContent }: PreviewPaneP
   const [device, setDevice] = useState<Device>("desktop");
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
-  const srcDoc = useMemo(() => {
-    if (!result) return null;
-    const entry = result.files.find((f) => f.path === "index.html");
-    return entry?.content ?? null;
-  }, [result]);
+  const srcDoc = useMemo(() => assemblePreview(result), [result]);
 
   function openInNewTab() {
     if (!srcDoc) return;

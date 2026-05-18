@@ -15,7 +15,7 @@
  *     "tier": "Multi-page product clone",
  *     "reasoning": "YouTube-style клон требует меню-бар, анимации и 4+ страниц.",
  *     "recommendedPages": ["Home","Watch","Channel","Search","Library"],
- *     "stack": "typescript"
+ *     "stack": "react-ts"
  *   }
  *
  * `reasoning` MUST match the language of the user's prompt.
@@ -31,8 +31,14 @@ Output a single valid JSON object — no markdown fences, no commentary — matc
   "tier": "<short label, 2–5 words, in English>",
   "reasoning": "<one sentence explaining WHY this score, in the user's language>",
   "recommendedPages": ["Home", "..."],
-  "stack": "html" | "js-modules" | "typescript"
+  "stack": "html" | "react-ts"
 }
+
+Stack values:
+  - "html"     — vanilla HTML + CSS + JS (no build step). Use when score ≤ 4.
+  - "react-ts" — React + TypeScript multi-file project. Use when score ≥ 5.
+
+There are no other valid stack values.
 
 ────────────────────────────────────────────────────────────────────────────
 COMPLEXITY RUBRIC (Henosis spec)
@@ -55,31 +61,31 @@ COMPLEXITY RUBRIC (Henosis spec)
 5/10 — Polished single-page site with real animations: scroll reveals,
   hover micro-interactions, multiple sections, mobile menu. Still one page.
   "premium landing for a startup", "agency homepage with case studies".
-  Stack: js-modules. Pages: 1–2.
+  Stack: react-ts. Pages: 1–2.
 
-6/10 — Two-page site: landing + a meaningful secondary page (Pricing,
+6/10 — Two-view React app: landing + a meaningful secondary view (Pricing,
   Menu, Features). Real animations. Sticky nav.
-  Stack: js-modules. Pages: 2.
+  Stack: react-ts. Pages: 2.
 
-7/10 — Multi-page product clone: requires a real menu bar, multiple
-  pages (3+), tasteful animations, interactive widgets that feel like a
-  product (search bar, filters, modal). "make me a YouTube" lands here —
-  full multi-page clone but no actual video streaming.
-  Stack: typescript. Pages: 3–5.
+7/10 — Multi-view React+TS product clone: real navbar, multiple views (3+),
+  tasteful animations, interactive widgets that feel like a product (search
+  bar, filters, modal). "make me a YouTube" lands here — full multi-view
+  clone but no actual video streaming.
+  Stack: react-ts. Pages: 3–5.
 
-8/10 — Polished automatic site the AI should sweat over: 4+ pages, real
-  data shape (mock JSON), client-side routing OR multi-page with shared
-  components, working forms, animations everywhere.
-  Stack: typescript. Pages: 4–6.
+8/10 — Polished React+TS product the AI should sweat over: 4+ views, real
+  data shape (typed mock JSON), client-side routing via useState,
+  shared components, working forms, animations everywhere.
+  Stack: react-ts. Pages: 4–6.
 
 9/10 — Production-grade SaaS-clone or e-commerce flow: dashboard layouts,
-  multiple linked flows, persistent state, complex animations.
-  Stack: typescript. Pages: 5–8.
+  multiple linked flows, persistent state (localStorage), complex animations.
+  Stack: react-ts. Pages: 5–8.
 
 10/10 — Reserved for users who specify a genuinely complex scheme (detailed
   feature lists, "build me X with A, B, C, D, dashboards, auth flow,
   multi-step onboarding, etc.").
-  Stack: typescript. Pages: 6+.
+  Stack: react-ts. Pages: 6+.
 
 ────────────────────────────────────────────────────────────────────────────
 DECISION RULES — be CONSERVATIVE. When in doubt, score LOWER.
@@ -129,8 +135,8 @@ nothing about size or page count.
 
 8. stack:
    - score ≤ 4 → "html"
-   - score 5–6 → "js-modules"
-   - score ≥ 7 → "typescript"
+   - score ≥ 5 → "react-ts"
+   NEVER emit "js-modules" or "typescript" — those are deprecated.
 
 9. SCORING SANITY CHECK before you output:
    - Is the prompt ≤ 8 words AND does not name a real product clone?
@@ -295,10 +301,14 @@ function coerceStack(
   v: unknown,
   score: number,
 ): ComplexityAnalysis["stack"] {
-  if (v === "html" || v === "js-modules" || v === "typescript") return v;
+  // Map deprecated values ("js-modules" / "typescript") onto the new
+  // canonical "react-ts" so older saved projects keep loading.
+  if (v === "html") return "html";
+  if (v === "react-ts" || v === "js-modules" || v === "typescript") {
+    return "react-ts";
+  }
   if (score <= 4) return "html";
-  if (score <= 6) return "js-modules";
-  return "typescript";
+  return "react-ts";
 }
 
 function stripFences(s: string): string {
@@ -364,7 +374,7 @@ function fallbackAnalysis(prompt: string): ComplexityAnalysis {
   ) {
     return {
       score: 7,
-      stack: "typescript",
+      stack: "react-ts",
       tier: "Multi-page clone",
       reasoning: "Names a real multi-page product — defaulted to 7/10.",
       recommendedPages: ["Home", "Browse", "Detail", "Search", "Library"],
@@ -379,7 +389,7 @@ function fallbackAnalysis(prompt: string): ComplexityAnalysis {
   ) {
     return {
       score: 8,
-      stack: "typescript",
+      stack: "react-ts",
       tier: "Full product",
       reasoning: "Prompt asks for dashboards / multi-flow product — 8/10.",
       recommendedPages: [
