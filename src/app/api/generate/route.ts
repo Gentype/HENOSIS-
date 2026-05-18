@@ -12,6 +12,11 @@ import {
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// Capped automatically by Vercel to the plan limit (60s on Hobby, 300s on
+// Pro / new-platform). Setting it explicitly stops slow OpenRouter TTFB
+// from killing the connection at the default 10s and surfacing as
+// "Generation failed: Load failed" on the client.
+export const maxDuration = 300;
 
 interface Body {
   prompt: string;

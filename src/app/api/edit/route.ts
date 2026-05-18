@@ -6,6 +6,10 @@ import type { GenerateResultFile } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// Capped automatically by Vercel to the plan limit (60s on Hobby, 300s on
+// Pro). Without this, the default 10s timeout kills mid-stream and the
+// client surfaces "Load failed".
+export const maxDuration = 300;
 
 interface Body {
   prompt: string;
@@ -49,9 +53,26 @@ export async function POST(req: NextRequest) {
           encoder.encode(`data: ${JSON.stringify(event)}\n\n`),
         );
       }
+      // Periodic heartbeat (SSE comment line) keeps upstream proxies from
+      // closing a quiet connection while OpenRouter TTFBs. Without this,
+      // slow first chunks surface as "Generation failed: Load failed".
+      function heartbeat() {
+        controller.enqueue(encoder.encode(`: hb\n\n`));
+      }
+      let closed = false;
+      const hb = setInterval(() => {
+        if (!closed) {
+          try {
+            heartbeat();
+          } catch {
+            /* controller might be closed mid-flush */
+          }
+        }
+      }, 10_000);
 
       try {
         send({ type: "start", model });
+        heartbeat();
         const result = await generateSiteStream(
           prompt,
           model,
@@ -65,6 +86,8 @@ export async function POST(req: NextRequest) {
       } catch (err) {
         send({ type: "error", message: (err as Error).message });
       } finally {
+        closed = true;
+        clearInterval(hb);
         controller.close();
       }
     },
