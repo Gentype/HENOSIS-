@@ -8,21 +8,22 @@
  *   - the exact JSON output shape (meta + files + preview + optional
  *     plan/notes/userSummary/complexity),
  *   - the "vanilla HTML + CSS variables + IntersectionObserver" idiom from
- *     SYSTEM_PROMPT,
- *   - **PROPERLY FORMATTED multi-line HTML / CSS / JS** — never minified
- *     onto a single line, because the model otherwise copies that pattern
- *     and emits `index.html · 1 lines`,
- *   - the **multi-file project tree** (package.json, tsconfig.json,
- *     src/*.ts) that high-complexity (≥5) builds must ship alongside the
- *     iframe-runnable runtime files,
+ *     SYSTEM_PROMPT for low-complexity sites (score ≤ 4),
+ *   - **PROPERLY FORMATTED multi-line code** — never minified onto a single
+ *     line, because the model otherwise copies that pattern and emits
+ *     `index.html · 1 lines`,
+ *   - the **React + TypeScript multi-file project tree** (package.json,
+ *     tsconfig.json, src/main.tsx, src/App.tsx, src/components/*.tsx,
+ *     src/types.ts, src/data/*.ts) that high-complexity (≥ 5) builds must
+ *     ship, runnable in-iframe via the Henosis Babel + esm.sh runtime,
  *   - language-matching for `userSummary` (the assistant replies in the
  *     same language as the user prompt).
  *
  * Each example carries a `complexity` band so the picker can show the
  * model an example whose size matches the user's target score:
  *   3–4  → reformatted HTML-only examples (Saudade / Mira),
- *   5–6  → Bloom Studio (js-modules, animated agency landing),
- *   7–10 → Stream (typescript multi-file product clone).
+ *   5–6  → Bloom Studio (React + TS animated agency landing),
+ *   7–10 → Stream (React + TS multi-page product clone).
  *
  * Each `assistant.content` is a JSON string that parses with `JSON.parse`.
  */
@@ -425,12 +426,13 @@ const MIRA_RESULT = {
 };
 
 // ---------------------------------------------------------------------------
-// js-modules example — Bloom Studio agency (5/10 animated landing).
+// React + TS example #1 — Bloom Studio agency (5/10 animated landing).
 //
-// The runtime iframe still loads only index.html / styles.css / script.js.
-// Alongside those we emit a real-looking project tree (package.json,
-// src/main.js, src/reveal.js, README.md) so the user sees an IDE-style
-// file explorer rather than 3 lonely files.
+// This is the canonical shape for "score 5–6" output: index.html is a
+// minimal shell with <div id="root"></div>, NO <script src> for libraries.
+// The Henosis preview runtime (lib/preview-assembler.ts) injects
+// Babel-standalone + an esm.sh importmap and mounts src/main.tsx — the
+// model must NOT add <script src="https://..."> for React.
 // ---------------------------------------------------------------------------
 
 const BLOOM_INDEX = `<!doctype html>
@@ -442,66 +444,7 @@ const BLOOM_INDEX = `<!doctype html>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <header class="nav">
-      <a class="logo" href="#">Bloom</a>
-      <nav class="nav-links">
-        <a href="#work">Work</a>
-        <a href="#services">Services</a>
-        <a href="#process">Process</a>
-        <a class="btn-primary" href="#contact">Start a project</a>
-      </nav>
-      <button class="nav-burger" aria-label="Open menu">≡</button>
-    </header>
-
-    <section class="hero">
-      <p class="eyebrow reveal-up">Independent Studio · Berlin</p>
-      <h1 class="hero-h1 reveal-up delay-1">
-        We design brands<br />
-        <span class="accent">people remember.</span>
-      </h1>
-      <p class="hero-sub reveal-up delay-2">
-        Identity, web, and product design for startups who refuse to look like
-        everyone else. Booking Q3 — 2 spots left.
-      </p>
-      <div class="hero-ctas reveal-up delay-3">
-        <a class="btn-primary" href="#contact">Get in touch</a>
-        <a class="btn-ghost" href="#work">See selected work</a>
-      </div>
-    </section>
-
-    <section id="work" class="work">
-      <h2 class="reveal-up">Selected work</h2>
-      <div class="work-grid">
-        <article class="work-card reveal-up">
-          <h3>Field & Fern · D2C</h3>
-          <p>Identity + Shopify storefront. 4× repeat-purchase rate in 90 days.</p>
-        </article>
-        <article class="work-card reveal-up delay-1">
-          <h3>Atlas Health · SaaS</h3>
-          <p>Brand + marketing site for a $4M seed. Featured on Designspiration.</p>
-        </article>
-        <article class="work-card reveal-up delay-2">
-          <h3>Onda Coffee · Hospitality</h3>
-          <p>Wordmark, packaging, and ordering site for a Lisbon micro-roaster.</p>
-        </article>
-      </div>
-    </section>
-
-    <section id="services" class="services">
-      <h2 class="reveal-up">What we make</h2>
-      <ul class="service-list">
-        <li class="reveal-up">Brand identity systems</li>
-        <li class="reveal-up delay-1">Marketing &amp; product websites</li>
-        <li class="reveal-up delay-2">Design systems and component libraries</li>
-        <li class="reveal-up delay-3">Packaging &amp; print</li>
-      </ul>
-    </section>
-
-    <footer>
-      <p>© 2025 Bloom Studio · Auguststrasse 64, Berlin · hello@bloom.studio</p>
-    </footer>
-
-    <script type="module" src="script.js"></script>
+    <div id="root"></div>
   </body>
 </html>
 `;
@@ -579,8 +522,8 @@ body {
 .accent { color: var(--color-accent); }
 .hero-sub { max-width: 560px; color: var(--color-text-muted); margin-bottom: 32px; }
 .hero-ctas { display: flex; gap: 12px; flex-wrap: wrap; }
-.btn-primary { background: var(--color-accent); color: #fff; padding: 14px 28px; border-radius: 10px; text-decoration: none; }
-.btn-ghost { padding: 14px 28px; border-radius: 10px; border: 1px solid rgba(0,0,0,0.18); color: var(--color-text); text-decoration: none; }
+.btn-primary { background: var(--color-accent); color: #fff; padding: 14px 28px; border-radius: 10px; text-decoration: none; border: 0; font: inherit; cursor: pointer; }
+.btn-ghost { padding: 14px 28px; border-radius: 10px; border: 1px solid rgba(0,0,0,0.18); color: var(--color-text); text-decoration: none; background: transparent; font: inherit; cursor: pointer; }
 
 section { padding: 100px 32px; }
 section h2 { font-family: var(--font-display); font-size: 44px; margin-bottom: 32px; }
@@ -613,40 +556,189 @@ section h2 { font-family: var(--font-display); font-size: 44px; margin-bottom: 3
 footer { padding: 32px; font-size: 14px; color: var(--color-text-muted); border-top: 1px solid rgba(0,0,0,0.06); }
 `;
 
-const BLOOM_SCRIPT = `import { mountReveals } from './src/reveal.js';
-import { mountMobileMenu } from './src/menu.js';
+const BLOOM_MAIN_TSX = `import React from "react";
+import { createRoot } from "react-dom/client";
+import { App } from "./App";
 
-mountReveals();
-mountMobileMenu();
-`;
-
-const BLOOM_MAIN_JS = `import { mountReveals } from './reveal.js';
-import { mountMobileMenu } from './menu.js';
-
-mountReveals();
-mountMobileMenu();
-`;
-
-const BLOOM_REVEAL_JS = `export function mountReveals() {
-  const io = new IntersectionObserver(
-    (entries) =>
-      entries.forEach((e) => e.isIntersecting && e.target.classList.add('in')),
-    { threshold: 0.1 },
-  );
-  document.querySelectorAll('.reveal-up').forEach((el) => io.observe(el));
+const container = document.getElementById("root");
+if (container) {
+  createRoot(container).render(<App />);
 }
 `;
 
-const BLOOM_MENU_JS = `export function mountMobileMenu() {
-  const btn = document.querySelector('.nav-burger');
-  const links = document.querySelector('.nav-links');
-  if (!btn || !links) return;
-  btn.addEventListener('click', () => {
-    links.classList.toggle('open');
-  });
-  links.querySelectorAll('a').forEach((a) => {
-    a.addEventListener('click', () => links.classList.remove('open'));
-  });
+const BLOOM_APP_TSX = `import React from "react";
+import { Nav } from "./components/Nav";
+import { Hero } from "./components/Hero";
+import { Work } from "./components/Work";
+import { Services } from "./components/Services";
+import { Footer } from "./components/Footer";
+import { useScrollReveal } from "./lib/useScrollReveal";
+
+export function App(): JSX.Element {
+  useScrollReveal();
+  return (
+    <>
+      <Nav />
+      <Hero />
+      <Work />
+      <Services />
+      <Footer />
+    </>
+  );
+}
+`;
+
+const BLOOM_NAV_TSX = `import React, { useState } from "react";
+
+export function Nav(): JSX.Element {
+  const [open, setOpen] = useState(false);
+  return (
+    <header className="nav">
+      <a className="logo" href="#">Bloom</a>
+      <nav className={open ? "nav-links open" : "nav-links"}>
+        <a href="#work" onClick={() => setOpen(false)}>Work</a>
+        <a href="#services" onClick={() => setOpen(false)}>Services</a>
+        <a href="#process" onClick={() => setOpen(false)}>Process</a>
+        <a className="btn-primary" href="#contact" onClick={() => setOpen(false)}>
+          Start a project
+        </a>
+      </nav>
+      <button
+        className="nav-burger"
+        aria-label="Open menu"
+        onClick={() => setOpen((v) => !v)}
+      >
+        ≡
+      </button>
+    </header>
+  );
+}
+`;
+
+const BLOOM_HERO_TSX = `import React from "react";
+
+export function Hero(): JSX.Element {
+  return (
+    <section className="hero">
+      <p className="eyebrow reveal-up">Independent Studio · Berlin</p>
+      <h1 className="hero-h1 reveal-up delay-1">
+        We design brands<br />
+        <span className="accent">people remember.</span>
+      </h1>
+      <p className="hero-sub reveal-up delay-2">
+        Identity, web, and product design for startups who refuse to look like
+        everyone else. Booking Q3 — 2 spots left.
+      </p>
+      <div className="hero-ctas reveal-up delay-3">
+        <a className="btn-primary" href="#contact">Get in touch</a>
+        <a className="btn-ghost" href="#work">See selected work</a>
+      </div>
+    </section>
+  );
+}
+`;
+
+const BLOOM_WORK_TSX = `import React from "react";
+
+interface CaseStudy {
+  title: string;
+  blurb: string;
+}
+
+const WORK: readonly CaseStudy[] = [
+  {
+    title: "Field & Fern · D2C",
+    blurb: "Identity + Shopify storefront. 4× repeat-purchase rate in 90 days.",
+  },
+  {
+    title: "Atlas Health · SaaS",
+    blurb: "Brand + marketing site for a $4M seed. Featured on Designspiration.",
+  },
+  {
+    title: "Onda Coffee · Hospitality",
+    blurb: "Wordmark, packaging, and ordering site for a Lisbon micro-roaster.",
+  },
+] as const;
+
+export function Work(): JSX.Element {
+  return (
+    <section id="work">
+      <h2 className="reveal-up">Selected work</h2>
+      <div className="work-grid">
+        {WORK.map((item, i) => (
+          <article
+            key={item.title}
+            className={i === 0 ? "work-card reveal-up" : \`work-card reveal-up delay-\${i}\`}
+          >
+            <h3>{item.title}</h3>
+            <p>{item.blurb}</p>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+`;
+
+const BLOOM_SERVICES_TSX = `import React from "react";
+
+const SERVICES: readonly string[] = [
+  "Brand identity systems",
+  "Marketing & product websites",
+  "Design systems and component libraries",
+  "Packaging & print",
+] as const;
+
+export function Services(): JSX.Element {
+  return (
+    <section id="services">
+      <h2 className="reveal-up">What we make</h2>
+      <ul className="service-list">
+        {SERVICES.map((s, i) => (
+          <li key={s} className={i === 0 ? "reveal-up" : \`reveal-up delay-\${i}\`}>
+            {s}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+`;
+
+const BLOOM_FOOTER_TSX = `import React from "react";
+
+export function Footer(): JSX.Element {
+  return (
+    <footer>
+      <p>© 2025 Bloom Studio · Auguststrasse 64, Berlin · hello@bloom.studio</p>
+    </footer>
+  );
+}
+`;
+
+const BLOOM_USE_SCROLL_REVEAL_TS = `import { useEffect } from "react";
+
+/**
+ * Adds the "in" class to every \`.reveal-up\` element when it scrolls into
+ * view. Runs once on mount; the IntersectionObserver disconnects itself
+ * after each element has been revealed.
+ */
+export function useScrollReveal(): void {
+  useEffect(() => {
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            entry.target.classList.add("in");
+            io.unobserve(entry.target);
+          }
+        }
+      },
+      { threshold: 0.1 },
+    );
+    document.querySelectorAll(".reveal-up").forEach((el) => io.observe(el));
+    return () => io.disconnect();
+  }, []);
 }
 `;
 
@@ -658,12 +750,40 @@ const BLOOM_PACKAGE_JSON = `{
   "description": "Bloom Studio — independent brand & web design agency, Berlin.",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview"
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
   },
   "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.0",
+    "typescript": "^5.6.0",
     "vite": "^5.4.0"
   }
+}
+`;
+
+const BLOOM_TSCONFIG = `{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "esModuleInterop": true,
+    "isolatedModules": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "outDir": "dist"
+  },
+  "include": ["src/**/*"]
 }
 `;
 
@@ -673,7 +793,9 @@ Marketing site for Bloom Studio, an independent brand & web design studio in Ber
 
 ## Stack
 
-Vanilla HTML + CSS + ES modules. No framework. The runtime entry is \`index.html\`; \`script.js\` is the bundled equivalent of the modules in \`src/\`.
+React 19 + TypeScript. The Henosis preview runtime mounts \`src/main.tsx\`
+directly from \`index.html\` via Babel + an esm.sh importmap — no build step
+is required to view it. For local development run Vite.
 
 ## Run
 
@@ -687,18 +809,18 @@ const BLOOM_RESULT = {
   plan: [
     "Warm-white + red accent palette (#F5F0E8 / #FF4D4D)",
     "Fraunces display + DM Sans body",
-    "Sticky translucent navbar with mobile hamburger",
+    "Sticky translucent navbar with mobile hamburger (useState)",
     "Hero with stagger reveal + dual CTA",
-    "Selected work grid with hover lift",
-    "Service list with accent bullet rule",
-    "Wire reveals + mobile menu via ES modules",
+    "Selected work grid mapped from a typed CaseStudy[] array",
+    "Service list mapped from a typed string[]",
+    "Wire reveals via a custom useScrollReveal hook",
   ],
   notes: [
     "Contact CTA points to #contact anchor — wire to a real form when ready.",
     "All work names are placeholder — swap with real case studies before shipping.",
   ],
   userSummary:
-    "Built an animated agency landing for Bloom Studio with sticky nav, mobile menu, hover-lift case studies, and a clean Fraunces serif identity. Source split into ES modules.",
+    "Built an animated agency landing for Bloom Studio in React + TypeScript with sticky nav, mobile menu, hover-lift case studies, and a clean Fraunces serif identity.",
   complexity: 5,
   meta: {
     title: "Bloom Studio",
@@ -713,11 +835,28 @@ const BLOOM_RESULT = {
   files: [
     { path: "index.html", content: BLOOM_INDEX, language: "html" },
     { path: "styles.css", content: BLOOM_STYLES, language: "css" },
-    { path: "script.js", content: BLOOM_SCRIPT, language: "javascript" },
-    { path: "src/main.js", content: BLOOM_MAIN_JS, language: "javascript" },
-    { path: "src/reveal.js", content: BLOOM_REVEAL_JS, language: "javascript" },
-    { path: "src/menu.js", content: BLOOM_MENU_JS, language: "javascript" },
+    { path: "src/main.tsx", content: BLOOM_MAIN_TSX, language: "tsx" },
+    { path: "src/App.tsx", content: BLOOM_APP_TSX, language: "tsx" },
+    { path: "src/components/Nav.tsx", content: BLOOM_NAV_TSX, language: "tsx" },
+    { path: "src/components/Hero.tsx", content: BLOOM_HERO_TSX, language: "tsx" },
+    { path: "src/components/Work.tsx", content: BLOOM_WORK_TSX, language: "tsx" },
+    {
+      path: "src/components/Services.tsx",
+      content: BLOOM_SERVICES_TSX,
+      language: "tsx",
+    },
+    {
+      path: "src/components/Footer.tsx",
+      content: BLOOM_FOOTER_TSX,
+      language: "tsx",
+    },
+    {
+      path: "src/lib/useScrollReveal.ts",
+      content: BLOOM_USE_SCROLL_REVEAL_TS,
+      language: "typescript",
+    },
     { path: "package.json", content: BLOOM_PACKAGE_JSON, language: "json" },
+    { path: "tsconfig.json", content: BLOOM_TSCONFIG, language: "json" },
     { path: "README.md", content: BLOOM_README, language: "markdown" },
   ],
   preview: {
@@ -725,20 +864,18 @@ const BLOOM_RESULT = {
     heroSubline:
       "Identity, web, and product design for startups who refuse to look like everyone else.",
     colorPalette: ["#F5F0E8", "#FFFFFF", "#FF4D4D", "#1A1A1A"],
-    sections: ["Hero", "Work", "Services", "Footer"],
+    sections: ["Nav", "Hero", "Work", "Services", "Footer"],
   },
 };
 
 // ---------------------------------------------------------------------------
-// typescript example — Stream video-platform clone (7/10 multi-page product).
+// React + TS example #2 — Stream video-platform clone (7/10 multi-page product).
 //
-// Demonstrates the full TS project shape: package.json + tsconfig.json +
-// src/main.ts + src/types.ts + src/data/videos.ts + src/components/*.ts
-// alongside the iframe-runnable index.html + styles.css + script.js.
-//
-// Critical: `index.html` references ONLY `styles.css` + `script.js` (never
-// a `.ts` file). The compiled `script.js` mirrors the behavior of
-// `src/main.ts` so the two are kept in sync.
+// Full React + TS project tree: src/main.tsx + src/App.tsx + multiple
+// components + src/types.ts + src/data/videos.ts + src/lib/format.ts +
+// package.json + tsconfig.json + README.md. Runs in the Henosis preview
+// iframe without a build step because the runtime injects Babel + an
+// esm.sh importmap and mounts src/main.tsx for you.
 // ---------------------------------------------------------------------------
 
 const STREAM_INDEX = `<!doctype html>
@@ -750,41 +887,7 @@ const STREAM_INDEX = `<!doctype html>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <header class="topbar">
-      <a class="logo" href="index.html">Stream</a>
-      <div class="search">
-        <input type="search" placeholder="Search creators, topics, or channels" />
-      </div>
-      <nav class="topbar-nav">
-        <a href="pages/trending.html">Trending</a>
-        <a href="pages/library.html">Library</a>
-        <a class="btn-pill" href="pages/upload.html">Upload</a>
-      </nav>
-    </header>
-
-    <main id="app" class="app-shell">
-      <aside class="sidebar">
-        <a class="side-item active" href="index.html">Home</a>
-        <a class="side-item" href="pages/trending.html">Trending</a>
-        <a class="side-item" href="pages/library.html">Library</a>
-        <a class="side-item" href="pages/upload.html">Upload</a>
-        <hr />
-        <p class="side-label">Subscriptions</p>
-        <a class="side-item" href="#">Casey Foster</a>
-        <a class="side-item" href="#">Aria Mendoza</a>
-        <a class="side-item" href="#">The Daily Crank</a>
-      </aside>
-
-      <section class="grid" id="video-grid">
-        <!-- Cards are injected by script.js / src/main.ts -->
-      </section>
-    </main>
-
-    <footer>
-      <p>© 2025 Stream · Demo — no real videos are streamed.</p>
-    </footer>
-
-    <script src="script.js"></script>
+    <div id="root"></div>
   </body>
 </html>
 `;
@@ -840,7 +943,7 @@ body {
   font-family: var(--font-body);
 }
 .topbar-nav { display: flex; gap: 12px; align-items: center; }
-.topbar-nav a { color: var(--color-text-muted); text-decoration: none; font-size: 14px; }
+.topbar-nav a, .topbar-nav button { color: var(--color-text-muted); text-decoration: none; font-size: 14px; background: transparent; border: 0; font: inherit; cursor: pointer; }
 .btn-pill { background: var(--color-accent); color: #fff; padding: 8px 16px; border-radius: 999px; }
 
 .app-shell {
@@ -858,6 +961,11 @@ body {
   color: var(--color-text-muted);
   text-decoration: none;
   font-size: 14px;
+  background: transparent;
+  border: 0;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
   transition: background .15s ease, color .15s ease;
 }
 .side-item:hover { background: var(--color-surface); color: var(--color-text); }
@@ -904,6 +1012,8 @@ body {
 .video-card .channel { color: var(--color-text-muted); font-size: 13px; }
 .video-card .meta { color: var(--color-text-muted); font-size: 12px; }
 
+.empty-state { color: var(--color-text-muted); padding: 32px; }
+
 footer { padding: 32px; color: var(--color-text-muted); font-size: 13px; border-top: 1px solid var(--color-border); }
 
 @media (max-width: 720px) {
@@ -914,89 +1024,276 @@ footer { padding: 32px; color: var(--color-text-muted); font-size: 13px; border-
 }
 `;
 
-const STREAM_SCRIPT = `// Compiled equivalent of src/main.ts — mirrors its behavior so the iframe
-// can run without a build step. Keep in sync with the TypeScript source.
+const STREAM_TYPES_TS = `export interface Video {
+  id: string;
+  title: string;
+  channel: string;
+  views: number;
+  age: string;
+  duration: string;
+  /** HSL hue used to colorise the placeholder thumbnail gradient. */
+  hue: number;
+  /** Which sidebar section the video belongs to. */
+  category: "home" | "trending" | "library";
+}
 
-const VIDEOS = [
+export interface Channel {
+  id: string;
+  name: string;
+  subscribers: number;
+}
+
+export type ViewKey = "home" | "trending" | "library" | "subscriptions";
+`;
+
+const STREAM_VIDEOS_DATA_TS = `import type { Video } from "../types";
+
+export const VIDEOS: readonly Video[] = [
   {
     id: "v1",
     title: "Sailing the Atlantic in 14 days — full doc cut",
     channel: "Casey Foster",
-    views: 1240000,
+    views: 1_240_000,
     age: "3 days ago",
     duration: "42:11",
     hue: 18,
+    category: "home",
   },
   {
     id: "v2",
     title: "I rebuilt my dad's '78 Bronco in 90 days",
     channel: "The Daily Crank",
-    views: 612000,
+    views: 612_000,
     age: "1 week ago",
     duration: "28:47",
     hue: 200,
+    category: "trending",
   },
   {
     id: "v3",
     title: "Why my pasta dough finally works (after 200 tries)",
     channel: "Aria Mendoza",
-    views: 489300,
+    views: 489_300,
     age: "2 weeks ago",
     duration: "11:02",
     hue: 340,
+    category: "home",
   },
   {
     id: "v4",
     title: "Behind a one-person SaaS doing $40k/mo",
     channel: "Indie Cuts",
-    views: 220800,
+    views: 220_800,
     age: "4 days ago",
     duration: "19:36",
     hue: 270,
+    category: "trending",
   },
   {
     id: "v5",
     title: "First snow in the Dolomites — long take",
     channel: "Field Notes",
-    views: 134100,
+    views: 134_100,
     age: "5 days ago",
     duration: "07:21",
     hue: 210,
+    category: "library",
   },
   {
     id: "v6",
     title: "The print shop that survived three recessions",
     channel: "Slow Stories",
-    views: 88400,
+    views: 88_400,
     age: "2 days ago",
     duration: "23:18",
     hue: 36,
+    category: "home",
   },
-];
+] as const;
+`;
 
-function formatViews(n) {
-  if (n >= 1000000) return (n / 1000000).toFixed(1).replace(/\\.0$/, "") + "M views";
-  if (n >= 1000) return (n / 1000).toFixed(0) + "K views";
+const STREAM_CHANNELS_DATA_TS = `import type { Channel } from "../types";
+
+export const SUBSCRIPTIONS: readonly Channel[] = [
+  { id: "c1", name: "Casey Foster", subscribers: 1_800_000 },
+  { id: "c2", name: "Aria Mendoza", subscribers: 412_000 },
+  { id: "c3", name: "The Daily Crank", subscribers: 780_000 },
+] as const;
+`;
+
+const STREAM_FORMAT_TS = `export function formatViews(n: number): string {
+  if (n >= 1_000_000) {
+    return (n / 1_000_000).toFixed(1).replace(/\\.0$/, "") + "M views";
+  }
+  if (n >= 1_000) {
+    return (n / 1_000).toFixed(0) + "K views";
+  }
   return n + " views";
 }
+`;
 
-function renderVideoCard(v) {
-  const card = document.createElement("article");
-  card.className = "video-card";
-  card.innerHTML = \`
-    <div class="thumb" style="background: linear-gradient(135deg, hsl(\${v.hue},70%,28%), hsl(\${v.hue},60%,14%));">
-      <span class="duration">\${v.duration}</span>
-    </div>
-    <h3>\${v.title}</h3>
-    <p class="channel">\${v.channel}</p>
-    <p class="meta">\${formatViews(v.views)} · \${v.age}</p>
-  \`;
-  return card;
+const STREAM_MAIN_TSX = `import React from "react";
+import { createRoot } from "react-dom/client";
+import { App } from "./App";
+
+const container = document.getElementById("root");
+if (container) {
+  createRoot(container).render(<App />);
+}
+`;
+
+const STREAM_APP_TSX = `import React, { useMemo, useState } from "react";
+import { TopBar } from "./components/TopBar";
+import { Sidebar } from "./components/Sidebar";
+import { VideoGrid } from "./components/VideoGrid";
+import { VIDEOS } from "./data/videos";
+import type { ViewKey } from "./types";
+
+export function App(): JSX.Element {
+  const [view, setView] = useState<ViewKey>("home");
+  const [query, setQuery] = useState("");
+
+  const filtered = useMemo(() => {
+    const byView =
+      view === "home"
+        ? VIDEOS
+        : view === "subscriptions"
+          ? VIDEOS.filter((v) => v.channel !== "Slow Stories")
+          : VIDEOS.filter((v) => v.category === view);
+    if (!query.trim()) return byView;
+    const q = query.toLowerCase();
+    return byView.filter(
+      (v) =>
+        v.title.toLowerCase().includes(q) ||
+        v.channel.toLowerCase().includes(q),
+    );
+  }, [view, query]);
+
+  return (
+    <>
+      <TopBar query={query} onQueryChange={setQuery} />
+      <main className="app-shell">
+        <Sidebar active={view} onSelect={setView} />
+        <VideoGrid videos={filtered} />
+      </main>
+      <footer>
+        <p>© 2025 Stream · Demo — no real videos are streamed.</p>
+      </footer>
+    </>
+  );
+}
+`;
+
+const STREAM_TOPBAR_TSX = `import React from "react";
+
+interface TopBarProps {
+  query: string;
+  onQueryChange: (next: string) => void;
 }
 
-const grid = document.getElementById("video-grid");
-if (grid) {
-  VIDEOS.forEach((v) => grid.appendChild(renderVideoCard(v)));
+export function TopBar({ query, onQueryChange }: TopBarProps): JSX.Element {
+  return (
+    <header className="topbar">
+      <a className="logo" href="#">Stream</a>
+      <div className="search">
+        <input
+          type="search"
+          placeholder="Search creators, topics, or channels"
+          value={query}
+          onChange={(e) => onQueryChange(e.target.value)}
+        />
+      </div>
+      <nav className="topbar-nav">
+        <a href="#trending">Trending</a>
+        <a href="#library">Library</a>
+        <button type="button" className="btn-pill">Upload</button>
+      </nav>
+    </header>
+  );
+}
+`;
+
+const STREAM_SIDEBAR_TSX = `import React from "react";
+import { SUBSCRIPTIONS } from "../data/channels";
+import type { ViewKey } from "../types";
+
+interface SidebarProps {
+  active: ViewKey;
+  onSelect: (next: ViewKey) => void;
+}
+
+const ITEMS: readonly { key: ViewKey; label: string }[] = [
+  { key: "home", label: "Home" },
+  { key: "trending", label: "Trending" },
+  { key: "library", label: "Library" },
+  { key: "subscriptions", label: "Subscriptions" },
+] as const;
+
+export function Sidebar({ active, onSelect }: SidebarProps): JSX.Element {
+  return (
+    <aside className="sidebar">
+      {ITEMS.map((item) => (
+        <button
+          key={item.key}
+          type="button"
+          className={item.key === active ? "side-item active" : "side-item"}
+          onClick={() => onSelect(item.key)}
+        >
+          {item.label}
+        </button>
+      ))}
+      <hr />
+      <p className="side-label">Subscriptions</p>
+      {SUBSCRIPTIONS.map((channel) => (
+        <a key={channel.id} className="side-item" href="#">{channel.name}</a>
+      ))}
+    </aside>
+  );
+}
+`;
+
+const STREAM_VIDEO_CARD_TSX = `import React from "react";
+import type { Video } from "../types";
+import { formatViews } from "../lib/format";
+
+interface VideoCardProps {
+  video: Video;
+}
+
+export function VideoCard({ video }: VideoCardProps): JSX.Element {
+  const gradient = \`linear-gradient(135deg, hsl(\${video.hue},70%,28%), hsl(\${video.hue},60%,14%))\`;
+  return (
+    <article className="video-card">
+      <div className="thumb" style={{ background: gradient }}>
+        <span className="duration">{video.duration}</span>
+      </div>
+      <h3>{video.title}</h3>
+      <p className="channel">{video.channel}</p>
+      <p className="meta">{formatViews(video.views)} · {video.age}</p>
+    </article>
+  );
+}
+`;
+
+const STREAM_VIDEO_GRID_TSX = `import React from "react";
+import { VideoCard } from "./VideoCard";
+import type { Video } from "../types";
+
+interface VideoGridProps {
+  videos: readonly Video[];
+}
+
+export function VideoGrid({ videos }: VideoGridProps): JSX.Element {
+  if (videos.length === 0) {
+    return <p className="empty-state">No videos match that search yet.</p>;
+  }
+  return (
+    <section className="grid">
+      {videos.map((video) => (
+        <VideoCard key={video.id} video={video} />
+      ))}
+    </section>
+  );
 }
 `;
 
@@ -1008,14 +1305,20 @@ const STREAM_PACKAGE_JSON = `{
   "description": "Stream — a video-platform clone (demo). Multi-page UI with mock data.",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "build": "tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit"
   },
+  "dependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
   "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.0",
     "typescript": "^5.6.0",
-    "vite": "^5.4.0",
-    "@types/node": "^22.0.0"
+    "vite": "^5.4.0"
   }
 }
 `;
@@ -1026,6 +1329,7 @@ const STREAM_TSCONFIG = `{
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "esModuleInterop": true,
@@ -1045,9 +1349,9 @@ video streaming, no real channels. Mock data lives in \`src/data/videos.ts\`.
 
 ## Stack
 
-- TypeScript (strict)
-- Vite for the dev server / build
-- Vanilla DOM (no framework)
+- React 19 + TypeScript (strict)
+- Vite for local dev / build
+- Henosis preview runtime (Babel + esm.sh importmap) for the live iframe
 
 ## Run
 
@@ -1056,160 +1360,41 @@ npm install
 npm run dev
 \`\`\`
 
-The runtime entry is \`index.html\` — it links to the bundled \`script.js\` and
-\`styles.css\` so the iframe preview can run with no build step.
-
 ## Project shape
 
 \`\`\`
-index.html            # iframe-renderable entry
-styles.css            # design tokens + grid layout
-script.js             # compiled equivalent of src/main.ts
-src/main.ts           # mounts the home grid
-src/types.ts          # Video / Channel domain types
-src/data/videos.ts    # mock JSON, cast as const
-src/components/...    # component-style render fns
+index.html                    # shell with <div id="root"></div>
+styles.css                    # design tokens + grid layout
+src/main.tsx                  # createRoot(...).render(<App />)
+src/App.tsx                   # top-level layout + view state
+src/components/TopBar.tsx     # logo, search input, upload CTA
+src/components/Sidebar.tsx    # navigation + subscriptions
+src/components/VideoCard.tsx  # single video tile
+src/components/VideoGrid.tsx  # responsive grid of cards
+src/types.ts                  # Video / Channel / ViewKey types
+src/data/videos.ts            # typed mock catalogue
+src/data/channels.ts          # typed subscriptions list
+src/lib/format.ts             # formatViews helper
 \`\`\`
-`;
-
-const STREAM_TYPES_TS = `export interface Video {
-  id: string;
-  title: string;
-  channel: string;
-  views: number;
-  age: string;
-  duration: string;
-  /** HSL hue used to colorise the placeholder thumbnail gradient. */
-  hue: number;
-}
-
-export interface Channel {
-  id: string;
-  name: string;
-  subscribers: number;
-}
-`;
-
-const STREAM_DATA_TS = `import type { Video } from "../types";
-
-export const VIDEOS: readonly Video[] = [
-  {
-    id: "v1",
-    title: "Sailing the Atlantic in 14 days — full doc cut",
-    channel: "Casey Foster",
-    views: 1_240_000,
-    age: "3 days ago",
-    duration: "42:11",
-    hue: 18,
-  },
-  {
-    id: "v2",
-    title: "I rebuilt my dad's '78 Bronco in 90 days",
-    channel: "The Daily Crank",
-    views: 612_000,
-    age: "1 week ago",
-    duration: "28:47",
-    hue: 200,
-  },
-  {
-    id: "v3",
-    title: "Why my pasta dough finally works (after 200 tries)",
-    channel: "Aria Mendoza",
-    views: 489_300,
-    age: "2 weeks ago",
-    duration: "11:02",
-    hue: 340,
-  },
-  {
-    id: "v4",
-    title: "Behind a one-person SaaS doing $40k/mo",
-    channel: "Indie Cuts",
-    views: 220_800,
-    age: "4 days ago",
-    duration: "19:36",
-    hue: 270,
-  },
-  {
-    id: "v5",
-    title: "First snow in the Dolomites — long take",
-    channel: "Field Notes",
-    views: 134_100,
-    age: "5 days ago",
-    duration: "07:21",
-    hue: 210,
-  },
-  {
-    id: "v6",
-    title: "The print shop that survived three recessions",
-    channel: "Slow Stories",
-    views: 88_400,
-    age: "2 days ago",
-    duration: "23:18",
-    hue: 36,
-  },
-] as const;
-`;
-
-const STREAM_FORMAT_TS = `export function formatViews(n: number): string {
-  if (n >= 1_000_000) {
-    return (n / 1_000_000).toFixed(1).replace(/\\.0$/, "") + "M views";
-  }
-  if (n >= 1_000) {
-    return (n / 1_000).toFixed(0) + "K views";
-  }
-  return n + " views";
-}
-`;
-
-const STREAM_VIDEO_CARD_TS = `import type { Video } from "../types";
-import { formatViews } from "../format";
-
-export function renderVideoCard(video: Video): HTMLElement {
-  const card = document.createElement("article");
-  card.className = "video-card";
-  card.innerHTML = \`
-    <div class="thumb" style="background: linear-gradient(135deg, hsl(\${video.hue},70%,28%), hsl(\${video.hue},60%,14%));">
-      <span class="duration">\${video.duration}</span>
-    </div>
-    <h3>\${video.title}</h3>
-    <p class="channel">\${video.channel}</p>
-    <p class="meta">\${formatViews(video.views)} · \${video.age}</p>
-  \`;
-  return card;
-}
-`;
-
-const STREAM_MAIN_TS = `import { VIDEOS } from "./data/videos";
-import { renderVideoCard } from "./components/VideoCard";
-
-function mountHomeGrid(): void {
-  const grid = document.getElementById("video-grid");
-  if (!grid) return;
-  for (const video of VIDEOS) {
-    grid.appendChild(renderVideoCard(video));
-  }
-}
-
-mountHomeGrid();
 `;
 
 const STREAM_RESULT = {
   plan: [
     "Dark UI shell with red accent (#FF0033) — YouTube-like signal color",
-    "Sticky topbar with logo, search, Upload CTA",
-    "Sidebar with Home / Trending / Library / Subscriptions",
+    "Sticky topbar with logo, search input, Upload CTA",
+    "Sidebar with Home / Trending / Library / Subscriptions buttons",
     "Responsive video grid with 16:9 thumbs and hover lift",
-    "Mock data shaped as a real Video[] type",
-    "TypeScript source tree: main.ts + components + data + types",
-    "Compiled equivalent script.js so the iframe runs without a build",
+    "Typed mock catalogue (Video[]) filtered by view + search",
+    "Subscriptions panel sourced from a typed Channel[] array",
+    "React + TypeScript source tree: App + 4 components + types + data + lib",
   ],
   notes: [
     "No real videos are streamed — thumbnails are colored gradients, titles are invented.",
-    "Trending / Library / Upload pages are linked but only the Home grid is rendered here for brevity.",
-    "Subscriptions list is static — wire to mock channels JSON for a real build.",
+    "Trending / Library / Subscriptions views filter the same mock catalogue — extend with a backend fetch when ready.",
+    "Upload CTA does not open a form — wire to a real route when ready.",
   ],
   userSummary:
-    "Built a 7/10 video-platform clone (Stream) with dark UI, sidebar, sticky search bar, responsive video grid, and a real TypeScript source tree alongside the runtime files.",
+    "Built a 7/10 video-platform clone (Stream) in React + TypeScript: dark UI, sidebar navigation, sticky search, responsive video grid, and a typed mock catalogue with filtering.",
   complexity: 7,
   meta: {
     title: "Stream",
@@ -1219,24 +1404,52 @@ const STREAM_RESULT = {
     accentColor: "#FF0033",
     fontPrimary: "Space Grotesk",
     fontSecondary: "DM Sans",
-    pages: ["Home", "Trending", "Library", "Upload"],
+    pages: ["Home", "Trending", "Library", "Subscriptions"],
   },
   files: [
     { path: "index.html", content: STREAM_INDEX, language: "html" },
     { path: "styles.css", content: STREAM_STYLES, language: "css" },
-    { path: "script.js", content: STREAM_SCRIPT, language: "javascript" },
+    { path: "src/main.tsx", content: STREAM_MAIN_TSX, language: "tsx" },
+    { path: "src/App.tsx", content: STREAM_APP_TSX, language: "tsx" },
+    { path: "src/types.ts", content: STREAM_TYPES_TS, language: "typescript" },
+    {
+      path: "src/components/TopBar.tsx",
+      content: STREAM_TOPBAR_TSX,
+      language: "tsx",
+    },
+    {
+      path: "src/components/Sidebar.tsx",
+      content: STREAM_SIDEBAR_TSX,
+      language: "tsx",
+    },
+    {
+      path: "src/components/VideoCard.tsx",
+      content: STREAM_VIDEO_CARD_TSX,
+      language: "tsx",
+    },
+    {
+      path: "src/components/VideoGrid.tsx",
+      content: STREAM_VIDEO_GRID_TSX,
+      language: "tsx",
+    },
+    {
+      path: "src/data/videos.ts",
+      content: STREAM_VIDEOS_DATA_TS,
+      language: "typescript",
+    },
+    {
+      path: "src/data/channels.ts",
+      content: STREAM_CHANNELS_DATA_TS,
+      language: "typescript",
+    },
+    {
+      path: "src/lib/format.ts",
+      content: STREAM_FORMAT_TS,
+      language: "typescript",
+    },
     { path: "package.json", content: STREAM_PACKAGE_JSON, language: "json" },
     { path: "tsconfig.json", content: STREAM_TSCONFIG, language: "json" },
     { path: "README.md", content: STREAM_README, language: "markdown" },
-    { path: "src/main.ts", content: STREAM_MAIN_TS, language: "typescript" },
-    { path: "src/types.ts", content: STREAM_TYPES_TS, language: "typescript" },
-    { path: "src/format.ts", content: STREAM_FORMAT_TS, language: "typescript" },
-    { path: "src/data/videos.ts", content: STREAM_DATA_TS, language: "typescript" },
-    {
-      path: "src/components/VideoCard.ts",
-      content: STREAM_VIDEO_CARD_TS,
-      language: "typescript",
-    },
   ],
   preview: {
     heroHeadline: "Watch what people are actually making.",
@@ -1309,7 +1522,7 @@ export const BUILT_IN_EXAMPLES: BuiltInExample[] = [
   },
   {
     id: "agency-landing",
-    title: "Animated agency landing (5/10, js-modules)",
+    title: "Animated agency landing (5/10, React + TS)",
     appType: "agency",
     complexity: 5,
     keywords: [
@@ -1336,7 +1549,7 @@ export const BUILT_IN_EXAMPLES: BuiltInExample[] = [
   },
   {
     id: "video-platform-clone",
-    title: "Video platform clone (7/10, typescript)",
+    title: "Video platform clone (7/10, React + TS)",
     appType: "product-clone",
     complexity: 7,
     keywords: [
@@ -1355,7 +1568,7 @@ export const BUILT_IN_EXAMPLES: BuiltInExample[] = [
       {
         role: "user",
         content:
-          "Build me a YouTube-style video platform clone called Stream. Dark UI, sticky topbar with search and Upload CTA, sidebar with Home/Trending/Library/Subscriptions, responsive video grid populated from mock data. Multi-page structure, full TypeScript source tree.",
+          "Build me a YouTube-style video platform clone called Stream. Dark UI, sticky topbar with search and Upload CTA, sidebar with Home/Trending/Library/Subscriptions, responsive video grid populated from mock data. Multi-page structure, full React + TypeScript source tree.",
       },
       {
         role: "assistant",
@@ -1372,7 +1585,7 @@ export const BUILT_IN_EXAMPLES: BuiltInExample[] = [
 //
 // `complexityScore` (1–10), when provided, biases the picker so the model
 // sees an example whose output size matches the user's target — e.g. a
-// 7/10 prompt should be primed with the typescript multi-file example,
+// 7/10 prompt should be primed with the React + TS Stream example,
 // NOT a 3/10 coffee shop landing.
 // ---------------------------------------------------------------------------
 
@@ -1426,11 +1639,12 @@ export function pickRelevantExamples(
 
 /**
  * Bucket a complexity score into one of three bands so the picker can map
- * "8/10" to the typescript example without needing an exact-7/10 match.
+ * "8/10" to the React + TS Stream example without needing an exact-7/10
+ * match.
  *
  *   1–4  → 0 (html)
- *   5–6  → 1 (js-modules)
- *   7–10 → 2 (typescript)
+ *   5–6  → 1 (react-ts landing)
+ *   7–10 → 2 (react-ts product clone)
  */
 function complexityBand(score: number): number {
   if (score <= 4) return 0;

@@ -64,8 +64,17 @@ export interface ComplexityAnalysis {
   tier: string;
   /** Pages the model recommends building. */
   recommendedPages: string[];
-  /** "html" for ≤4, "typescript" / "js-modules" for ≥5. */
-  stack: "html" | "js-modules" | "typescript";
+  /**
+   * "html" for ≤4 (vanilla HTML + CSS + JS), "react-ts" for ≥5
+   * (full React + TypeScript project tree executed in-browser via
+   * Babel-standalone + esm.sh; see lib/preview-assembler.ts).
+   *
+   * The "js-modules" and "typescript" values are legacy aliases that map
+   * onto "react-ts" at read time — they may still appear in older saved
+   * projects from earlier prompts. New code paths only emit "html" or
+   * "react-ts".
+   */
+  stack: "html" | "react-ts" | "js-modules" | "typescript";
   /** True if the user explicitly overrode the analyzed score (Silver+). */
   userOverride?: boolean;
 }

@@ -50,7 +50,7 @@ export interface SystemOverride {
 export interface ComplexityContext {
   /** 1–10. Required when this context is passed. */
   score: number;
-  /** "html" for ≤4, "js-modules" for 5–6, "typescript" for ≥7. */
+  /** "html" for ≤4, "react-ts" for ≥5. */
   stack: ComplexityAnalysis["stack"];
   /** Short label, e.g. "Multi-page clone". */
   tier?: string;
@@ -65,9 +65,18 @@ export interface ComplexityContext {
 function buildComplexityHeader(ctx: ComplexityContext): string {
   const pages = (ctx.recommendedPages ?? []).filter(Boolean).join(", ");
   const tier = ctx.tier?.trim() || tierFromScore(ctx.score);
+  // Normalise the stack: deprecated values ("js-modules", "typescript")
+  // collapse into "react-ts" so the Site Architect only ever sees the new
+  // two-value contract.
+  const normalisedStack =
+    ctx.stack === "html"
+      ? "html"
+      : ctx.score <= 4
+        ? "html"
+        : "react-ts";
   const lines: string[] = [];
   lines.push(
-    `<complexity score="${ctx.score}/10" stack="${ctx.stack}" tier="${tier}"${
+    `<complexity score="${ctx.score}/10" stack="${normalisedStack}" tier="${tier}"${
       ctx.userOverride ? ' override="user-selected"' : ""
     }>`,
   );
@@ -76,15 +85,16 @@ function buildComplexityHeader(ctx: ComplexityContext): string {
   lines.push(
     `Build a site that matches a ${ctx.score}/10 on the Henosis rubric — no smaller, no larger.`,
   );
-  if (ctx.score >= 5) {
+  if (normalisedStack === "react-ts") {
     lines.push(
-      `Stack is "${ctx.stack}": emit the matching project tree (package.json, README, ${
-        ctx.score >= 7 ? "tsconfig.json + src/*.ts source files" : "src/*.js modules"
-      }) alongside the runtime index.html/styles.css/script.js.`,
+      `Stack is "react-ts": emit a REAL React + TypeScript project tree. REQUIRED files: index.html (shell with <div id="root"></div>, NO <script src> for libs), styles.css, src/main.tsx, src/App.tsx, at least one src/components/<Name>.tsx, package.json (react ^19, react-dom ^19, vite, typescript), tsconfig.json (jsx "react-jsx", strict). For score ≥ 7 also include src/types.ts, src/data/<name>.ts, src/lib/<helper>.ts, README.md.`,
+    );
+    lines.push(
+      `Imports: bare specifiers ("react", "react-dom/client", "react/jsx-runtime") resolve via importmap → esm.sh; relative imports omit the file extension ("./components/Hero", "../types"). Do NOT emit script.js. The Henosis runtime injects Babel + importmap and mounts src/main.tsx for you.`,
     );
   } else {
     lines.push(
-      `Stack is "html": keep it lean — index.html (+ pages/*.html if needed) + styles.css + script.js. No package.json.`,
+      `Stack is "html": keep it lean — index.html (+ pages/*.html if needed) + styles.css + script.js. NO src/*.tsx, NO package.json, NO React.`,
     );
   }
   lines.push(`</complexity>`);
