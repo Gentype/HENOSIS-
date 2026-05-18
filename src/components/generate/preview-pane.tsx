@@ -11,6 +11,7 @@ import {
   Home,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { assemblePreview, hasReactEntry } from "@/lib/preview-assembler";
 import { LiveBuilder } from "./live-builder";
 
 interface PreviewPaneProps {
@@ -30,18 +31,30 @@ const WIDTHS: Record<Device, number> = {
 /**
  * Live preview of the generated site.
  *
- * The model returns one or more HTML files (index.html + optional
- * pages/*.html) plus shared styles.css / script.js. The iframe's srcdoc is
- * built per-route: we inline the linked stylesheet/script, inject a small
- * router script that posts navigation events back to the parent, and swap
- * srcdoc when the user clicks an internal link. When the user navigates to
- * a path that doesn't match any file, we render a styled 404 page that
- * bounces back to the index.
+ * Two modes:
+ *
+ *   1. **React project** (score ≥ 5, has src/main.tsx / App.tsx …):
+ *      hand the entire file set to {@link assemblePreview}, which boots
+ *      a Babel-standalone runtime inside the sandbox. Routing is the
+ *      user's responsibility (it's a SPA) so we don't intercept clicks.
+ *
+ *   2. **Vanilla HTML project** (index.html + optional pages/*.html +
+ *      shared assets): rebuild a fresh file set with whichever page the
+ *      user navigated to mounted as `index.html`, then pass that to
+ *      {@link assemblePreview} for asset inlining. We also inject a
+ *      tiny router script that intercepts internal <a> clicks and posts
+ *      navigation events back to us, and render a styled 404 page when
+ *      the user clicks a link to a page the model never emitted.
  */
 export function PreviewPane({ result, generating, partialContent }: PreviewPaneProps) {
   const [device, setDevice] = useState<Device>("desktop");
   const [route, setRoute] = useState<string>("index.html");
   const iframeRef = useRef<HTMLIFrameElement>(null);
+
+  const isReact = useMemo(
+    () => (result ? hasReactEntry(result.files) : false),
+    [result],
+  );
 
   // Reset to index whenever the project changes
   useEffect(() => {
@@ -67,7 +80,6 @@ export function PreviewPane({ result, generating, partialContent }: PreviewPaneP
         candidates.push("index.html");
       } else {
         candidates.push(trimmed);
-        // LLMs sometimes write <a href="about"> instead of "about.html"
         if (!trimmed.toLowerCase().endsWith(".html")) {
           candidates.push(`${trimmed}.html`);
           candidates.push(`pages/${trimmed}.html`);
@@ -87,16 +99,32 @@ export function PreviewPane({ result, generating, partialContent }: PreviewPaneP
     [result],
   );
 
-  // The currently-rendered HTML, with styles+scripts inlined and a router
-  // script appended. Recomputes when the route or result changes.
+  // Build the iframe document. For React: hand the original result to
+  // assemblePreview untouched. For HTML: build a re-rooted clone where
+  // the currently-active page sits at `index.html`, then assemble that.
+  // If the route doesn't resolve, render a styled 404 + router script.
   const srcDoc = useMemo(() => {
     if (!result) return null;
+
+    if (isReact) {
+      return assemblePreview(result);
+    }
+
     const { matched } = resolveHref(route);
     if (!matched) {
       return build404SrcDoc(route, result);
     }
-    return inlineSiteDocument(matched, result);
-  }, [result, route, resolveHref]);
+
+    const rerooted: GenerateResult = {
+      ...result,
+      files: result.files
+        .filter((f) => f.path !== "index.html" || matched.path === "index.html")
+        .map((f) => (f.path === matched.path ? { ...f, path: "index.html" } : f)),
+    };
+    const html = assemblePreview(rerooted);
+    if (!html) return null;
+    return injectRouterScript(html);
+  }, [result, route, resolveHref, isReact]);
 
   // Listen for navigation events posted by the injected router script.
   useEffect(() => {
@@ -120,6 +148,7 @@ export function PreviewPane({ result, generating, partialContent }: PreviewPaneP
   }
 
   const isHome = route === "index.html";
+  const showHomeChip = !isReact && !isHome;
 
   return (
     <div className="h-full flex flex-col">
@@ -132,9 +161,11 @@ export function PreviewPane({ result, generating, partialContent }: PreviewPaneP
           </span>
           <span className="font-mono text-foreground truncate">
             {result?.meta?.title ?? "preview"}.henosis.app
-            <span className="text-subtle">/{isHome ? "" : routeDisplay(route)}</span>
+            {showHomeChip && (
+              <span className="text-subtle">/{routeDisplay(route)}</span>
+            )}
           </span>
-          {!isHome && (
+          {showHomeChip && (
             <button
               type="button"
               onClick={() => setRoute("index.html")}
@@ -253,15 +284,10 @@ function GeneratingState({
 }
 
 /**
- * The injected router script. Lives inline in every rendered iframe page so
- * we don't have to set up a service worker. It:
- *
- *   1. Intercepts every <a> click whose href is "internal" (relative or
- *      same-origin) and posts a `henosis-nav` message to the parent
- *      instead of letting the iframe navigate away (which would surface
- *      as a blank/aborted load inside the srcdoc sandbox).
- *   2. Intercepts form submissions to internal endpoints (so the LLM's
- *      `<form action="/contact">` doesn't try to leave the sandbox).
+ * The injected router script. Lives inline in every rendered HTML iframe
+ * page so we don't have to wire a service worker. It intercepts internal
+ * <a> clicks and form submissions to internal endpoints and posts a
+ * `henosis-nav` message to the parent.
  */
 const ROUTER_SCRIPT = `
 (function() {
@@ -293,74 +319,16 @@ const ROUTER_SCRIPT = `
 })();
 `;
 
-/**
- * Take a single HTML file from the project and turn it into a self-contained
- * `srcdoc` string by inlining shared styles.css / script.js / pages/*.css /
- * pages/*.js files, plus appending the router script.
- */
-function inlineSiteDocument(file: GenerateResultFile, result: GenerateResult): string {
-  let html = file.content;
-  const fileMap = new Map<string, GenerateResultFile>(
-    result.files.map((f) => [f.path.toLowerCase(), f]),
-  );
-
-  // <link rel="stylesheet" href="..."> (rel before href)
-  html = html.replace(
-    /<link[^>]*rel=["']?stylesheet["']?[^>]*href=["']([^"']+)["'][^>]*\/?>/gi,
-    (_match, hrefAttr) => {
-      const resolved = resolveAssetPath(hrefAttr, file.path);
-      const css = fileMap.get(resolved.toLowerCase());
-      if (!css) return "";
-      return `<style data-href="${escapeAttr(hrefAttr)}">\n${css.content}\n</style>`;
-    },
-  );
-  // <link href="..." rel="stylesheet"> (href before rel)
-  html = html.replace(
-    /<link[^>]*href=["']([^"']+)["'][^>]*rel=["']?stylesheet["']?[^>]*\/?>/gi,
-    (_match, hrefAttr) => {
-      const resolved = resolveAssetPath(hrefAttr, file.path);
-      const css = fileMap.get(resolved.toLowerCase());
-      if (!css) return "";
-      return `<style data-href="${escapeAttr(hrefAttr)}">\n${css.content}\n</style>`;
-    },
-  );
-
-  // <script src="..."></script>
-  html = html.replace(
-    /<script[^>]*src=["']([^"']+)["'][^>]*><\/script>/gi,
-    (_match, srcAttr) => {
-      const resolved = resolveAssetPath(srcAttr, file.path);
-      const js = fileMap.get(resolved.toLowerCase());
-      if (!js) return "";
-      return `<script data-src="${escapeAttr(srcAttr)}">\n${js.content}\n</script>`;
-    },
-  );
-
-  const routerTag = `<script>${ROUTER_SCRIPT}</script>`;
+function injectRouterScript(html: string): string {
+  const tag = `<script>${ROUTER_SCRIPT}</script>`;
   if (/<\/body>/i.test(html)) {
-    html = html.replace(/<\/body>/i, `${routerTag}\n</body>`);
-  } else {
-    html = `${html}\n${routerTag}`;
+    return html.replace(/<\/body>/i, `${tag}\n</body>`);
   }
-  return html;
-}
-
-/** Resolve an asset href like "styles.css" or "../styles.css" against the current file's directory. */
-function resolveAssetPath(href: string, fromFile: string): string {
-  if (/^https?:\/\//i.test(href) || href.startsWith("data:")) return href;
-  const cleaned = href.replace(/^\.?\//, "");
-  const parts = fromFile.split("/");
-  parts.pop(); // drop the filename
-  const hrefParts = cleaned.split("/");
-  while (hrefParts[0] === "..") {
-    hrefParts.shift();
-    parts.pop();
-  }
-  return [...parts, ...hrefParts].filter(Boolean).join("/");
+  return `${html}\n${tag}`;
 }
 
 function escapeAttr(s: string): string {
-  return s.replace(/"/g, "&quot;").replace(/</g, "&lt;");
+  return s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
 }
 
 /** Render a styled 404 page when the iframe navigates somewhere we can't resolve. */

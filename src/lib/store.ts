@@ -9,20 +9,19 @@ import {
 import type { ChatMessage, Plan, Project, User } from "./types";
 import { DEFAULT_MODEL } from "./examples";
 
-/**
- * "auto" → use the AI's complexity assessment.
- * 1..10  → user (Silver+) picked a manual score; skip the AI assessment.
- */
-export type ComplexityChoice = "auto" | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
-
 interface DraftState {
   prompt: string;
   model: string;
-  /** "auto" by default; only Silver+ UI lets the user pick a number. */
-  complexity: ComplexityChoice;
+  /**
+   * Optional manual complexity (2–10) selected by a Silver/Gold user on the
+   * landing page BEFORE submitting. Persisted alongside the prompt so that
+   * users who get redirected through /auth come back with the same choice.
+   * `null` means "let the analyzer decide".
+   */
+  complexityOverride: number | null;
   setPrompt: (p: string) => void;
   setModel: (m: string) => void;
-  setComplexity: (c: ComplexityChoice) => void;
+  setComplexityOverride: (v: number | null) => void;
   reset: () => void;
 }
 
@@ -31,12 +30,17 @@ export const useDraft = create<DraftState>()(
     (set) => ({
       prompt: "",
       model: DEFAULT_MODEL,
-      complexity: "auto",
+      complexityOverride: null,
       setPrompt: (prompt) => set({ prompt }),
       setModel: (model) => set({ model }),
-      setComplexity: (complexity) => set({ complexity }),
+      setComplexityOverride: (complexityOverride) =>
+        set({ complexityOverride }),
       reset: () =>
-        set({ prompt: "", model: DEFAULT_MODEL, complexity: "auto" }),
+        set({
+          prompt: "",
+          model: DEFAULT_MODEL,
+          complexityOverride: null,
+        }),
     }),
     {
       name: "henosis:draft:v2",

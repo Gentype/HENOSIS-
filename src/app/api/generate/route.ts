@@ -1,14 +1,8 @@
 import { NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
-import { generateSiteStream } from "@/lib/generate";
+import { generateSiteStream, type ComplexityContext } from "@/lib/generate";
 import { DEFAULT_MODEL } from "@/lib/examples";
-import {
-  type Assessment,
-  canUseManualComplexity,
-  scoreToTier,
-  COMPLEXITY_TIERS,
-} from "@/lib/complexity";
-import type { GenerateResultFile } from "@/lib/types";
+import type { ComplexityAnalysis, GenerateResultFile } from "@/lib/types";
 import {
   PLAN_LIMITS,
   incrementUsage,
@@ -28,8 +22,18 @@ interface Body {
   prompt: string;
   model?: string;
   priorFiles?: GenerateResultFile[];
-  /** Complexity assessment from /api/assess (or a Silver+ manual override). */
-  assessment?: Assessment;
+  /**
+   * Optional output of the Quality Check classifier. When present, it's
+   * injected into the user message as a `<complexity>` block so the Site
+   * Architect sizes its build accordingly.
+   */
+  analysis?: ComplexityAnalysis;
+  /**
+   * Manual override (2–10) from a Silver/Gold user. Coerces the analysis
+   * score / stack to match. Ignored for free users (the route doesn't
+   * gate it here — the prompt-box does — but we still clamp and clean.).
+   */
+  complexityOverride?: number;
 }
 
 export async function POST(req: NextRequest) {
@@ -77,7 +81,12 @@ export async function POST(req: NextRequest) {
 
   const encoder = new TextEncoder();
   const model = body.model || DEFAULT_MODEL;
-  const assessment = sanitizeAssessment(body.assessment, user.plan);
+
+  // Resolve the complexity context: start from the analyzer's result, then
+  // let a Silver/Gold-tier manual override coerce score + stack. Free users
+  // can still send `analysis` but they don't get the override slider in the
+  // UI, so `complexityOverride` is normally absent for them.
+  const complexity = resolveComplexity(body);
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -86,31 +95,20 @@ export async function POST(req: NextRequest) {
           encoder.encode(`data: ${JSON.stringify(event)}\n\n`),
         );
       }
-      // SSE comment line — invisible to the client parser, but keeps any
-      // upstream proxy (Vercel's edge, Cloudflare, an enterprise reverse
-      // proxy) from closing a "silent" connection while OpenRouter TTFBs.
-      // Without this, slow first-chunks surface as "Load failed" / aborted
-      // fetches on the browser side.
-      function heartbeat() {
-        controller.enqueue(encoder.encode(`: hb\n\n`));
-      }
-
-      let closed = false;
-      const hb = setInterval(() => {
-        if (!closed) {
-          try {
-            heartbeat();
-          } catch {
-            /* controller might be closed mid-flush */
-          }
-        }
-      }, 10_000);
 
       try {
-        send({ type: "start", model, assessment });
-        // First heartbeat right away so the proxy sees bytes before the
-        // first slow OpenRouter chunk arrives.
-        heartbeat();
+        send({
+          type: "start",
+          model,
+          complexity: complexity
+            ? {
+                score: complexity.score,
+                stack: complexity.stack,
+                tier: complexity.tier,
+                userOverride: complexity.userOverride ?? false,
+              }
+            : undefined,
+        });
 
         const result = await generateSiteStream(
           prompt,
@@ -122,7 +120,7 @@ export async function POST(req: NextRequest) {
             },
           },
           undefined,
-          { assessment },
+          complexity,
         );
 
         // Only count successful generations against the user's quota.
@@ -132,8 +130,6 @@ export async function POST(req: NextRequest) {
       } catch (err) {
         send({ type: "error", message: (err as Error).message });
       } finally {
-        closed = true;
-        clearInterval(hb);
         controller.close();
       }
     },
@@ -150,44 +146,47 @@ export async function POST(req: NextRequest) {
 }
 
 /**
- * Validate & normalise a client-provided assessment.
- *
- * - If nothing was sent → returns undefined (the architect falls back to its
- *   own heuristics).
- * - If the user is on the free (Bronze) plan, manual overrides are silently
- *   demoted to "auto" — manual complexity is a Silver+ feature. We still
- *   honour the score so we don't waste their click; we just don't trust
- *   it as user intent.
- * - The tier is recomputed from the score server-side so an attacker
- *   can't pair score=1 with tier="max" to game the prompt.
+ * Merge analyzer output + optional user override into a single
+ * {@link ComplexityContext} for the Site Architect. Returns `undefined`
+ * when neither was provided (callers fall back to the legacy "no
+ * complexity" path).
  */
-function sanitizeAssessment(
-  raw: Assessment | undefined,
-  plan: "free" | "pro" | "ultra",
-): Assessment | undefined {
-  if (!raw) return undefined;
-  const score =
-    typeof raw.score === "number" && Number.isFinite(raw.score)
-      ? Math.min(10, Math.max(1, Math.round(raw.score)))
-      : null;
-  if (score === null) return undefined;
-  const tier = scoreToTier(score);
-  const fallbackPages = COMPLEXITY_TIERS[tier].defaultPages;
-  const pages =
-    Array.isArray(raw.pages) &&
-    raw.pages.every((p) => typeof p === "string" && p.length > 0) &&
-    raw.pages.length > 0
-      ? raw.pages.slice(0, 10)
-      : fallbackPages;
-  const requestedSource: "auto" | "manual" =
-    raw.source === "manual" ? "manual" : "auto";
-  const source: "auto" | "manual" =
-    requestedSource === "manual" && !canUseManualComplexity(plan)
-      ? "auto"
-      : requestedSource;
-  const rationale =
-    typeof raw.rationale === "string" && raw.rationale.trim()
-      ? raw.rationale.trim().slice(0, 200)
-      : COMPLEXITY_TIERS[tier].label;
-  return { score, tier, pages, rationale, source };
+function resolveComplexity(body: Body): ComplexityContext | undefined {
+  const analysis = body.analysis;
+  const override = body.complexityOverride;
+
+  if (!analysis && (override == null || !Number.isFinite(override))) {
+    return undefined;
+  }
+
+  let score = analysis?.score ?? 5;
+  let stack = analysis?.stack ?? "html";
+  let tier = analysis?.tier;
+  let userOverride = false;
+  if (override != null && Number.isFinite(override)) {
+    score = Math.max(2, Math.min(10, Math.round(override)));
+    // Canonical contract: only "html" (≤4) or "react-ts" (≥5). The legacy
+    // values "js-modules" / "typescript" used to leak in here from the
+    // pre-PR-11 codebase and confused the Site Architect — it would get
+    // told "stack=typescript" but the runtime expects React+TS files.
+    stack = score <= 4 ? "html" : "react-ts";
+    // Drop stale tier label when the user override changes the score band.
+    if (
+      analysis &&
+      analysis.score !== score &&
+      !analysis.userOverride
+    ) {
+      tier = undefined;
+    }
+    userOverride = true;
+  }
+
+  return {
+    score,
+    stack,
+    tier,
+    recommendedPages: analysis?.recommendedPages,
+    reasoning: analysis?.reasoning,
+    userOverride,
+  };
 }

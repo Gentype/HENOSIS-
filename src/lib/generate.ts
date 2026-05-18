@@ -25,12 +25,11 @@ import {
   pickRelevantExamples,
   type BuiltInExample,
 } from "./builtin-examples";
-import {
-  COMPLEXITY_TIERS,
-  complexityDirective,
-  type Assessment,
-} from "./complexity";
-import type { GenerateResult, GenerateResultFile } from "./types";
+import type {
+  ComplexityAnalysis,
+  GenerateResult,
+  GenerateResultFile,
+} from "./types";
 
 /**
  * Allow callers to swap the cached system prompt (e.g. EDIT_PROMPT, REMIX_PROMPT)
@@ -40,14 +39,90 @@ import type { GenerateResult, GenerateResultFile } from "./types";
  */
 export interface SystemOverride {
   systemText?: string;
-  /** Skip few-shot examples (saves tokens / latency for tiny builds). */
-  skipFewShot?: boolean;
+}
+
+/**
+ * Pre-generation complexity context produced by the Quality Check analyzer.
+ * Threaded through to the Site Architect via a `<complexity>` block prepended
+ * to the user message — the system prompt is told to read it and size its
+ * output accordingly.
+ */
+export interface ComplexityContext {
+  /** 1–10. Required when this context is passed. */
+  score: number;
+  /** "html" for ≤4, "react-ts" for ≥5. */
+  stack: ComplexityAnalysis["stack"];
+  /** Short label, e.g. "Multi-page clone". */
+  tier?: string;
+  /** Pages the analyzer recommended building (always starts with "Home"). */
+  recommendedPages?: string[];
+  /** Analyzer's one-sentence rationale. */
+  reasoning?: string;
+  /** Whether a Silver/Gold user manually overrode the analyzed score. */
+  userOverride?: boolean;
+}
+
+function buildComplexityHeader(ctx: ComplexityContext): string {
+  const pages = (ctx.recommendedPages ?? []).filter(Boolean).join(", ");
+  const tier = ctx.tier?.trim() || tierFromScore(ctx.score);
+  // Normalise the stack: deprecated values ("js-modules", "typescript")
+  // collapse into "react-ts" so the Site Architect only ever sees the new
+  // two-value contract.
+  const normalisedStack =
+    ctx.stack === "html"
+      ? "html"
+      : ctx.score <= 4
+        ? "html"
+        : "react-ts";
+  const lines: string[] = [];
+  lines.push(
+    `<complexity score="${ctx.score}/10" stack="${normalisedStack}" tier="${tier}"${
+      ctx.userOverride ? ' override="user-selected"' : ""
+    }>`,
+  );
+  if (pages) lines.push(`Recommended pages: ${pages}`);
+  if (ctx.reasoning) lines.push(`Analyzer rationale: ${ctx.reasoning}`);
+  lines.push(
+    `Build a site that matches a ${ctx.score}/10 on the Henosis rubric — no smaller, no larger.`,
+  );
+  if (normalisedStack === "react-ts") {
+    lines.push(
+      `Stack is "react-ts": emit a REAL React + TypeScript project tree. REQUIRED files: index.html (shell with <div id="root"></div>, NO <script src> for libs), styles.css, src/main.tsx, src/App.tsx, at least one src/components/<Name>.tsx, package.json (react ^19, react-dom ^19, vite, typescript), tsconfig.json (jsx "react-jsx", strict). For score ≥ 7 also include src/types.ts, src/data/<name>.ts, src/lib/<helper>.ts, README.md.`,
+    );
+    lines.push(
+      `Imports: bare specifiers ("react", "react-dom/client", "react/jsx-runtime") resolve via importmap → esm.sh; relative imports omit the file extension ("./components/Hero", "../types"). Do NOT emit script.js. The Henosis runtime injects Babel + importmap and mounts src/main.tsx for you.`,
+    );
+  } else {
+    lines.push(
+      `Stack is "html": keep it lean — index.html (+ pages/*.html if needed) + styles.css + script.js. NO src/*.tsx, NO package.json, NO React.`,
+    );
+  }
+  lines.push(`</complexity>`);
+  return lines.join("\n");
+}
+
+function tierFromScore(score: number): string {
+  if (score <= 1) return "Static badge";
+  if (score === 2) return "Coming-soon";
+  if (score === 3) return "Simple landing";
+  if (score === 4) return "Content landing";
+  if (score === 5) return "Animated landing";
+  if (score === 6) return "Two-page site";
+  if (score === 7) return "Multi-page clone";
+  if (score === 8) return "Full product";
+  if (score === 9) return "Production SaaS";
+  return "Custom system";
 }
 
 const OPENROUTER_API = "https://openrouter.ai/api/v1/chat/completions";
 
-/** Soft cap on combined few-shot example character length. */
-const FEW_SHOT_CHAR_BUDGET = 8000;
+/**
+ * Soft cap on combined few-shot example character length. Bumped to 30k so
+ * the typescript multi-file example (Stream, ~20k chars) fits — without it
+ * the picker would silently drop the TS example and the model would see
+ * only the small HTML examples, then copy that shape.
+ */
+const FEW_SHOT_CHAR_BUDGET = 30000;
 
 interface OpenRouterMessage {
   role: "system" | "user" | "assistant";
@@ -66,8 +141,7 @@ interface BuildRequestArgs {
   priorFiles?: GenerateResultFile[];
   stream?: boolean;
   systemText?: string;
-  assessment?: Assessment;
-  skipFewShot?: boolean;
+  complexity?: ComplexityContext;
 }
 
 // ---------------------------------------------------------------------------
@@ -82,8 +156,17 @@ export interface BuildMessagesArgs {
   systemPrompt: string;
   /** Optional pool of few-shot examples to choose from. */
   examples?: BuiltInExample[];
-  /** Optional explicit picker; defaults to the keyword/rotation picker. */
-  pickExamples?: (prompt: string, max: number) => BuiltInExample[];
+  /**
+   * Optional explicit picker; defaults to the keyword/complexity picker.
+   * The `complexityScore` is forwarded so the picker can bias toward an
+   * example whose output size matches the target — without it, a 7/10
+   * prompt would see only HTML examples and emit single-page HTML.
+   */
+  pickExamples?: (
+    prompt: string,
+    max: number,
+    complexityScore?: number,
+  ) => BuiltInExample[];
   /** Max examples to inject (capped by FEW_SHOT_CHAR_BUDGET as well). */
   maxExamples?: number;
   /**
@@ -95,6 +178,12 @@ export interface BuildMessagesArgs {
   priorFiles?: GenerateResultFile[];
   /** The user's current prompt. */
   currentUserPrompt: string;
+  /**
+   * Optional pre-generation complexity context. When present, a
+   * `<complexity>` block is prepended to the user message so the Site
+   * Architect knows the target size / stack.
+   */
+  complexity?: ComplexityContext;
 }
 
 export function buildMessagesForGeneration(
@@ -108,6 +197,7 @@ export function buildMessagesForGeneration(
     history = [],
     priorFiles,
     currentUserPrompt,
+    complexity,
   } = args;
 
   const messages: OpenRouterMessage[] = [];
@@ -126,10 +216,16 @@ export function buildMessagesForGeneration(
 
   // 2. Few-shot examples — skipped when the user is iterating on existing
   //    files (priorFiles takes priority as the "context" for the model) or
-  //    when the example pool is empty.
+  //    when the example pool is empty. The picker is told about the
+  //    target complexity so a 7/10 prompt gets the TS multi-file example
+  //    rather than a 3/10 coffee-shop landing.
   let pickedIds: string[] = [];
   if (!priorFiles?.length && examples.length > 0 && maxExamples > 0) {
-    const picked = pickExamples(currentUserPrompt, maxExamples);
+    const picked = pickExamples(
+      currentUserPrompt,
+      maxExamples,
+      complexity?.score,
+    );
     const budgeted = applyCharBudget(picked, FEW_SHOT_CHAR_BUDGET);
     pickedIds = budgeted.map((e) => e.id);
     for (const ex of budgeted) {
@@ -155,8 +251,13 @@ export function buildMessagesForGeneration(
     messages.push({ role: h.role, content: h.content });
   }
 
-  // 5. Current user prompt.
-  messages.push({ role: "user", content: currentUserPrompt });
+  // 5. Current user prompt. Prepend a `<complexity>` block when the
+  //    pre-generation analyzer has produced one — the system prompt is
+  //    explicitly told to read it and size the output accordingly.
+  const userBlocks: string[] = [];
+  if (complexity) userBlocks.push(buildComplexityHeader(complexity));
+  userBlocks.push(currentUserPrompt);
+  messages.push({ role: "user", content: userBlocks.join("\n\n") });
 
   if (process.env.NODE_ENV !== "production") {
     const totalLen = messages.reduce((sum, m) => {
@@ -196,44 +297,29 @@ function buildBody({
   priorFiles,
   stream,
   systemText,
-  assessment,
-  skipFewShot,
+  complexity,
 }: BuildRequestArgs): string {
   // When the caller supplies a specialised system text (edit / remix), we
   // honour it and skip few-shot examples — those examples target the generic
   // architect mode.
   const isOverride = Boolean(systemText);
-  // Low-complexity builds (landing, one-page) skip few-shot examples so the
-  // architect spends less time / tokens before emitting output — matches the
-  // user spec: "если меньше 4 то Он будет делать очень быстро".
-  const tierSkip =
-    assessment != null && COMPLEXITY_TIERS[assessment.tier].skipFewShot;
-  const dropExamples = isOverride || skipFewShot === true || tierSkip;
-
-  // Prepend the complexity directive to the user prompt so the architect
-  // knows how big a site to build. Kept OUT of the cached system block so
-  // the cache stays warm across requests with different scores.
-  const effectivePrompt = assessment
-    ? `${complexityDirective(assessment)}\n\n---\n\n${prompt}`
-    : prompt;
-
   const messages = buildMessagesForGeneration({
     systemPrompt: systemText ?? SYSTEM_PROMPT,
-    examples: dropExamples ? [] : BUILT_IN_EXAMPLES,
-    maxExamples: dropExamples ? 0 : 2,
+    examples: isOverride ? [] : BUILT_IN_EXAMPLES,
+    maxExamples: isOverride ? 0 : 2,
     priorFiles,
-    currentUserPrompt: effectivePrompt,
+    currentUserPrompt: prompt,
+    complexity,
   });
 
-  // The architect's output budget scales with tier: a 1–3 landing doesn't
-  // need 16k tokens of headroom (it's wasted latency).
-  const maxTokens = assessment
-    ? COMPLEXITY_TIERS[assessment.tier].maxTokens
-    : 16000;
-
+  // max_tokens raised from 16k to 32k after seeing real React+TS responses
+  // get clipped mid-JSON for score ≥ 7 prompts ("сделай мне youtube"-style).
+  // Truncated JSON was the #1 cause of "ошибка генерации или импорта" — the
+  // parser would throw on the unbalanced braces and the user saw "Generation
+  // failed: Model returned invalid JSON".
   return JSON.stringify({
     model,
-    max_tokens: maxTokens,
+    max_tokens: 32000,
     messages,
     stream: stream ?? false,
     response_format: { type: "json_object" },
@@ -255,17 +341,12 @@ function authHeaders(): HeadersInit {
   };
 }
 
-export interface GenerateOptions {
-  /** Complexity assessment to steer the architect. */
-  assessment?: Assessment;
-}
-
 export async function generateSite(
   prompt: string,
   model: string,
   priorFiles?: GenerateResultFile[],
   override?: SystemOverride,
-  opts?: GenerateOptions,
+  complexity?: ComplexityContext,
 ): Promise<GenerateResult> {
   const res = await fetch(OPENROUTER_API, {
     method: "POST",
@@ -276,8 +357,7 @@ export async function generateSite(
       priorFiles,
       stream: false,
       systemText: override?.systemText,
-      skipFewShot: override?.skipFewShot,
-      assessment: opts?.assessment,
+      complexity,
     }),
   });
 
@@ -304,7 +384,7 @@ export async function generateSiteStream(
   priorFiles: GenerateResultFile[] | undefined,
   callbacks: StreamCallbacks,
   override?: SystemOverride,
-  opts?: GenerateOptions,
+  complexity?: ComplexityContext,
 ): Promise<GenerateResult> {
   callbacks.onMeta?.({ model });
 
@@ -317,8 +397,7 @@ export async function generateSiteStream(
       priorFiles,
       stream: true,
       systemText: override?.systemText,
-      skipFewShot: override?.skipFewShot,
-      assessment: opts?.assessment,
+      complexity,
     }),
   });
 
