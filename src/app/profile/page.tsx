@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { Navbar } from "@/components/navbar";
 import { Footer } from "@/components/footer";
+import { Aurora } from "@/components/aurora";
 import { useUser, useProjects } from "@/lib/store";
 import { useEffect, useState } from "react";
 import Image from "next/image";
@@ -25,15 +26,18 @@ export default function ProfilePage() {
     return (
       <>
         <Navbar />
-        <main className="flex-1 mx-auto max-w-2xl px-5 lg:px-8 py-24 text-center">
-          <h1 className="text-3xl font-semibold tracking-tight">Not signed in</h1>
-          <p className="mt-2 text-muted">Sign in to see your profile.</p>
-          <Link
-            href="/auth"
-            className="btn-generate mt-6 inline-flex items-center gap-2 rounded-full font-semibold px-6 py-3 text-sm"
-          >
-            Sign in
-          </Link>
+        <main className="flex-1 relative">
+          <Aurora variant="subtle" />
+          <div className="relative z-[2] mx-auto max-w-2xl px-5 lg:px-8 py-24 text-center">
+            <h1 className="text-3xl font-semibold tracking-tight">Not signed in</h1>
+            <p className="mt-2 text-muted">Sign in to see your profile.</p>
+            <Link
+              href="/auth"
+              className="btn-generate mt-6 inline-flex items-center gap-2 rounded-full font-semibold px-6 py-3 text-sm"
+            >
+              Sign in
+            </Link>
+          </div>
         </main>
         <Footer />
       </>
@@ -55,11 +59,19 @@ export default function ProfilePage() {
       ? 0
       : Math.min(100, (user.generationsUsed / user.limit) * 100);
 
+  const tierAuroraVariant =
+    user.plan === "ultra"
+      ? "tier-gold"
+      : user.plan === "pro"
+        ? "tier-silver"
+        : "tier-bronze";
+
   return (
     <>
       <Navbar />
-      <main className="flex-1">
-        <section className="mx-auto max-w-5xl px-5 lg:px-8 pt-10 pb-16">
+      <main className="flex-1 relative">
+        <Aurora variant="subtle" />
+        <section className="relative z-[2] mx-auto max-w-5xl px-5 lg:px-8 pt-10 pb-16">
           <div className="flex items-center gap-4">
             {user.image ? (
               <Image
@@ -96,8 +108,9 @@ export default function ProfilePage() {
           </div>
 
           <div className="mt-10 grid gap-5 md:grid-cols-2">
-            <div className="rounded-2xl border border-border bg-surface/60 p-6">
-              <div className="flex items-center justify-between">
+            <div className="glass relative overflow-hidden rounded-2xl p-6">
+              <Aurora variant={tierAuroraVariant} />
+              <div className="relative z-[2] flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <PlanIcon plan={user.plan} />
                   <div>
@@ -115,7 +128,7 @@ export default function ProfilePage() {
                 </Link>
               </div>
 
-              <div className="mt-6">
+              <div className="relative z-[2] mt-6">
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted">Generations used</span>
                   <span className="font-medium">
@@ -138,16 +151,16 @@ export default function ProfilePage() {
               </div>
             </div>
 
-            <div className="rounded-2xl border border-border bg-surface/60 p-6">
-              <div className="text-xs uppercase tracking-wider text-subtle">
+            <div className="glass relative overflow-hidden rounded-2xl p-6">
+              <div className="relative z-[2] text-xs uppercase tracking-wider text-subtle">
                 Projects
               </div>
-              <div className="text-3xl font-semibold mt-1">{projects.length}</div>
-              <p className="text-sm text-muted mt-1">
+              <div className="relative z-[2] text-3xl font-semibold mt-1">{projects.length}</div>
+              <p className="relative z-[2] text-sm text-muted mt-1">
                 {projects.filter((p) => p.status === "done").length} ready, {" "}
                 {projects.filter((p) => p.status === "generating").length} in progress.
               </p>
-              <div className="mt-4 flex gap-2 flex-wrap">
+              <div className="relative z-[2] mt-4 flex gap-2 flex-wrap">
                 <Link
                   href="/projects"
                   className="inline-flex items-center gap-2 rounded-full border border-border bg-surface hover:bg-elevated text-sm px-4 py-2 transition-colors"

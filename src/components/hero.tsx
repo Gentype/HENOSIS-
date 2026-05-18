@@ -1,19 +1,24 @@
 "use client";
 
 import { PromptBox } from "./prompt-box";
+import { Aurora, RefractionBeam } from "./aurora";
 
 export function Hero() {
   return (
     <section className="relative overflow-hidden">
-      {/* Ambient backgrounds: matte-sage vertical flow stripes (top & bottom mirror)
-          + drifting dust particles + the existing soft radial spot/grid. */}
+      {/* Ambient backgrounds — stacked from back to front:
+          1. Original flow stripes + dust + radial + grid for texture (z=0)
+          2. Aurora vivid colour blobs that "punch through" the stripes (z=1)
+          3. Refraction prism beam (rainbow chromatic dispersion) (z=1) */}
       <div className="bg-flow-stripes" aria-hidden />
       <div className="bg-flow-dust" aria-hidden />
       <div className="absolute inset-0 bg-radial-spot pointer-events-none" />
       <div className="absolute inset-0 bg-grid pointer-events-none" />
+      <Aurora variant="vivid" className="z-[1]" />
+      <RefractionBeam className="z-[1]" />
 
-      <div className="relative z-[2] mx-auto max-w-7xl px-5 lg:px-8 pt-16 sm:pt-24 lg:pt-32 pb-16 text-center">
-        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-border bg-surface/60 backdrop-blur text-xs text-muted fade-up">
+      <div className="relative z-[3] mx-auto max-w-7xl px-5 lg:px-8 pt-16 sm:pt-24 lg:pt-32 pb-16 text-center">
+        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-white/10 bg-white/[0.04] backdrop-blur-md text-xs text-muted fade-up">
           <span className="relative flex h-1.5 w-1.5">
             <span className="absolute inline-flex h-full w-full rounded-full bg-accent opacity-75 animate-ping" />
             <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-accent" />

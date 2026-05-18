@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { Navbar } from "@/components/navbar";
 import { Footer } from "@/components/footer";
+import { Aurora } from "@/components/aurora";
 import { Check, Sparkles, Crown, Loader2, Shield } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUser } from "@/lib/store";
@@ -19,6 +20,8 @@ interface Tier {
   badge?: string;
   highlight?: boolean;
   glowClass: string;
+  priceClass: string;
+  auroraVariant: "tier-bronze" | "tier-silver" | "tier-gold";
   border: string;
   metal: string;
   icon: React.ElementType;
@@ -39,6 +42,8 @@ const TIERS: Tier[] = [
       "Chat-powered edits",
     ],
     glowClass: "tier-bronze",
+    priceClass: "tier-price-bronze",
+    auroraVariant: "tier-bronze",
     border: "border-[rgba(192,133,82,0.45)]",
     metal: "text-bronze",
     icon: Shield,
@@ -58,6 +63,8 @@ const TIERS: Tier[] = [
       "Export full HTML/CSS/JS",
     ],
     glowClass: "tier-silver",
+    priceClass: "tier-price-silver",
+    auroraVariant: "tier-silver",
     border: "border-[rgba(199,201,209,0.55)]",
     metal: "text-silver",
     icon: Sparkles,
@@ -80,6 +87,8 @@ const TIERS: Tier[] = [
       "Premium support",
     ],
     glowClass: "tier-gold",
+    priceClass: "tier-price-gold",
+    auroraVariant: "tier-gold",
     border: "border-[rgba(240,200,97,0.65)]",
     metal: "text-gold",
     icon: Crown,
@@ -113,9 +122,12 @@ export default function PricingPage() {
   return (
     <>
       <Navbar />
-      <main className="flex-1">
-        <section className="relative mx-auto max-w-7xl px-5 lg:px-8 pt-16 pb-10 text-center">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-border bg-surface/60 backdrop-blur text-xs text-muted fade-up">
+      <main className="flex-1 relative">
+        {/* Page-wide subtle aurora */}
+        <Aurora variant="subtle" />
+
+        <section className="relative z-[2] mx-auto max-w-7xl px-5 lg:px-8 pt-16 pb-10 text-center">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-white/10 bg-white/[0.04] backdrop-blur-md text-xs text-muted fade-up">
             Pricing
           </div>
           <h1 className="hero-headline mt-5 text-5xl sm:text-6xl font-semibold tracking-tight leading-[1.05] fade-up-delay-1">
@@ -127,7 +139,7 @@ export default function PricingPage() {
           </p>
         </section>
 
-        <section className="mx-auto max-w-7xl px-5 lg:px-8 pb-20">
+        <section className="relative z-[2] mx-auto max-w-7xl px-5 lg:px-8 pb-20">
           <div className="grid gap-6 md:grid-cols-3">
             {TIERS.map((t) => (
               <TierCard
@@ -176,13 +188,17 @@ function TierCard({
   return (
     <div
       className={cn(
-        "tier-sweep relative overflow-hidden rounded-3xl border bg-surface/70 p-8 flex flex-col",
+        "tier-sweep glass relative overflow-hidden rounded-3xl border p-8 flex flex-col",
+        "tilt-hover",
         tier.border,
         tier.glowClass,
         tier.highlight && "scale-[1.015]",
       )}
     >
-      <div className="flex items-center justify-between">
+      {/* Tier-tinted blob glow behind the card */}
+      <Aurora variant={tier.auroraVariant} />
+
+      <div className="relative z-[2] flex items-center justify-between">
         <div className={cn("inline-flex items-center gap-2", tier.iconColor)}>
           <Icon className="w-5 h-5" />
           <span className="text-sm font-medium uppercase tracking-wider">
@@ -196,9 +212,14 @@ function TierCard({
         )}
       </div>
 
-      <div className="mt-6">
+      <div className="relative z-[2] mt-6">
         <div className="flex items-baseline gap-1.5">
-          <span className="text-5xl font-semibold tracking-tight text-foreground">
+          <span
+            className={cn(
+              "text-5xl font-semibold tracking-tight",
+              tier.priceClass,
+            )}
+          >
             {tier.price}
           </span>
           <span className="text-sm text-muted">/ {tier.period}</span>
@@ -206,7 +227,7 @@ function TierCard({
         <p className="mt-3 text-sm text-muted">{tier.blurb}</p>
       </div>
 
-      <ul className="mt-7 space-y-3 text-sm">
+      <ul className="relative z-[2] mt-7 space-y-3 text-sm">
         {tier.features.map((f) => (
           <li key={f} className="flex items-start gap-2.5">
             <Check className={cn("w-4 h-4 mt-0.5 shrink-0", tier.iconColor)} />
@@ -220,7 +241,8 @@ function TierCard({
         onClick={onChoose}
         disabled={isCurrent || pending}
         className={cn(
-          "mt-8 inline-flex items-center justify-center gap-2 rounded-xl py-3 text-sm font-semibold transition-colors",
+          "relative z-[2] mt-8 inline-flex items-center justify-center gap-2 rounded-xl py-3 text-sm font-semibold transition-colors",
+          "tilt-hover",
           tier.id === "ultra"
             ? "bg-gold/15 text-gold border border-gold/60 hover:bg-gold/25"
             : tier.id === "pro"
