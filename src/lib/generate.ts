@@ -312,9 +312,14 @@ function buildBody({
     complexity,
   });
 
+  // max_tokens raised from 16k to 32k after seeing real React+TS responses
+  // get clipped mid-JSON for score ≥ 7 prompts ("сделай мне youtube"-style).
+  // Truncated JSON was the #1 cause of "ошибка генерации или импорта" — the
+  // parser would throw on the unbalanced braces and the user saw "Generation
+  // failed: Model returned invalid JSON".
   return JSON.stringify({
     model,
-    max_tokens: 16000,
+    max_tokens: 32000,
     messages,
     stream: stream ?? false,
     response_format: { type: "json_object" },

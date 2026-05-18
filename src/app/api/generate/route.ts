@@ -160,8 +160,11 @@ function resolveComplexity(body: Body): ComplexityContext | undefined {
   let userOverride = false;
   if (override != null && Number.isFinite(override)) {
     score = Math.max(2, Math.min(10, Math.round(override)));
-    stack =
-      score <= 4 ? "html" : score <= 6 ? "js-modules" : "typescript";
+    // Canonical contract: only "html" (≤4) or "react-ts" (≥5). The legacy
+    // values "js-modules" / "typescript" used to leak in here from the
+    // pre-PR-11 codebase and confused the Site Architect — it would get
+    // told "stack=typescript" but the runtime expects React+TS files.
+    stack = score <= 4 ? "html" : "react-ts";
     // Drop stale tier label when the user override changes the score band.
     if (
       analysis &&
