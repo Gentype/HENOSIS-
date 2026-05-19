@@ -312,14 +312,16 @@ function buildBody({
     complexity,
   });
 
-  // max_tokens raised from 16k to 32k after seeing real React+TS responses
-  // get clipped mid-JSON for score ≥ 7 prompts ("сделай мне youtube"-style).
-  // Truncated JSON was the #1 cause of "ошибка генерации или импорта" — the
-  // parser would throw on the unbalanced braces and the user saw "Generation
-  // failed: Model returned invalid JSON".
+  // max_tokens raised to 64k. Models like Claude Sonnet 4.5 and GPT-4.1
+  // support 128k output tokens; Gemini 2.5 Pro supports 65k. The previous
+  // 32k cap was clipping complex React+TS responses mid-JSON — the parser
+  // saw a partial object containing only `plan` (the first key emitted),
+  // threw "missing required keys (meta/files/preview)", and the user saw
+  // "Generation failed". 64k gives the model room to emit a full 8-page
+  // multi-file site without truncation.
   return JSON.stringify({
     model,
-    max_tokens: 32000,
+    max_tokens: 64000,
     messages,
     stream: stream ?? false,
     response_format: { type: "json_object" },
@@ -469,6 +471,30 @@ function parseResult(raw: string): GenerateResult {
   }
 
   if (!isGenerateResult(parsed)) {
+    // Check if this looks like a truncated response — the model started
+    // emitting (has `plan` or `meta` but not all three required keys).
+    // This is the #1 cause of "Generation failed: Model JSON is missing
+    // required keys" — the model didn't finish within max_tokens.
+    const obj = parsed as Record<string, unknown>;
+    const hasPlan = Array.isArray(obj.plan);
+    const hasMeta = typeof obj.meta === "object" && obj.meta !== null;
+    const hasFiles = Array.isArray(obj.files);
+    if (hasPlan && !hasFiles) {
+      throw new Error(
+        `The AI started building your site but ran out of space before finishing. ` +
+        `This happens with very complex prompts (score 8+). Try:\n` +
+        `• A simpler prompt (fewer pages)\n` +
+        `• Asking for specific pages one at a time in chat\n` +
+        `• Using Claude Sonnet 4.5 or GPT-4.1 (larger output window)\n\n` +
+        `Technical: model emitted plan but response was truncated before meta/files/preview.`,
+      );
+    }
+    if (hasMeta && !hasFiles) {
+      throw new Error(
+        `The AI wrote the site's metadata but ran out of space before emitting files. ` +
+        `The prompt is too complex for a single pass. Try a shorter prompt or a model with a larger output window.`,
+      );
+    }
     throw new Error(
       `Model JSON is missing required keys (meta/files/preview). Got: ${candidate.slice(0, 300)}…`,
     );
