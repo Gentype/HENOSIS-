@@ -1,6 +1,13 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { MenuBar } from "@/components/generate/menu-bar";
@@ -35,6 +42,28 @@ function GenerateLoading() {
   );
 }
 
+/**
+ * Server-side ProjectStatusDTO — kept local instead of importing because the
+ * server module pulls in node-only deps (fs, redis) that can't run on the
+ * client. The shape mirrors `lib/project-store.ts → toStatusDTO`.
+ */
+interface ServerProjectStatus {
+  id: string;
+  status: "queued" | "analyzing" | "generating" | "done" | "error";
+  partial: string;
+  result: GenerateResult | null;
+  error: string | null;
+  analysis: ComplexityAnalysis | null;
+  startedAt: number;
+  updatedAt: number;
+  completedAt: number | null;
+  elapsedMs: number;
+  stale: boolean;
+}
+
+/** Time between `/api/projects/{id}/status` polls while generation is live. */
+const POLL_INTERVAL_MS = 1500;
+
 function GenerateInner() {
   const router = useRouter();
   const sp = useSearchParams();
@@ -63,7 +92,34 @@ function GenerateInner() {
   const [generating, setGenerating] = useState(false);
   const [iframeKey, setIframeKey] = useState(0);
   const [chatOpen, setChatOpen] = useState(false);
+  /**
+   * Whether THIS tab owns the live SSE connection. When true, the partial
+   * stream is being driven by the SSE reader inside `startGeneration`.
+   * When false, we're either idle or attached to a server-side generation
+   * via polling — and we must not also kick off a duplicate /api/generate
+   * call. Set per-tab, not persisted, so two tabs of the same project can
+   * still each run their own polling against the shared server state.
+   */
+  const ownsStreamRef = useRef(false);
   const startedRef = useRef(false);
+  /**
+   * Active poll interval handle. Cleared on unmount, on completion, and
+   * before starting a new poll. Stored in a ref so the cleanup useEffect
+   * can read the current handle even after re-renders.
+   */
+  const pollHandleRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Cleanup any active poll when the component unmounts (navigating away
+  // from /generate). Without this, polls keep firing in the background
+  // and showing stale partial chunks if the user comes back later.
+  useEffect(() => {
+    return () => {
+      if (pollHandleRef.current) {
+        clearInterval(pollHandleRef.current);
+        pollHandleRef.current = null;
+      }
+    };
+  }, []);
 
   // When a result arrives or changes, default-select index.html for the code viewer
   useEffect(() => {
@@ -73,12 +129,105 @@ function GenerateInner() {
     }
   }, [project?.result, activePath]);
 
+  /**
+   * Apply a server-side ProjectStatusDTO to the local zustand state. Used
+   * by both the polling loop and the resume-on-mount path. Keeps the local
+   * project record in sync with the canonical server record.
+   */
+  const applyServerStatus = useCallback(
+    (id: string, sp: ServerProjectStatus) => {
+      if (sp.partial) setPartial(sp.partial);
+
+      if (sp.stale) {
+        // Server thinks the generation has been silent too long — Vercel
+        // probably killed the function at maxDuration. Surface as an error.
+        patch(id, { status: "error" });
+        setGenerating(false);
+        setPartial("");
+        return "stop" as const;
+      }
+
+      if (sp.status === "done" && sp.result) {
+        patch(id, {
+          status: "done",
+          result: sp.result,
+          analysis: sp.analysis ?? undefined,
+          title: sp.result.meta?.title || undefined,
+        });
+        setGenerating(false);
+        setPartial("");
+        return "stop" as const;
+      }
+
+      if (sp.status === "error") {
+        patch(id, { status: "error" });
+        setGenerating(false);
+        setPartial("");
+        return "stop" as const;
+      }
+
+      // Still generating / analyzing — sync analysis if we have one and
+      // the local copy doesn't.
+      if (sp.analysis) {
+        patch(id, { analysis: sp.analysis });
+      }
+      setGenerating(true);
+      return "continue" as const;
+    },
+    [patch],
+  );
+
+  /**
+   * Begin polling /api/projects/{id}/status for live generation progress.
+   * Used when the user opened the workshop on a project that's already
+   * being generated server-side (refresh, came back from another tab,
+   * navigated in from /projects). Idempotent — re-entering the same
+   * project just resets the interval.
+   */
+  const startServerPolling = useCallback(
+    (id: string) => {
+      if (pollHandleRef.current) {
+        clearInterval(pollHandleRef.current);
+        pollHandleRef.current = null;
+      }
+      pollHandleRef.current = setInterval(async () => {
+        try {
+          const res = await fetch(`/api/projects/${id}/status`, {
+            cache: "no-store",
+          });
+          if (res.status === 404) {
+            // Server forgot the project (cold start, ephemeral storage,
+            // file-backed crash). We can't recover; surface as an error.
+            if (pollHandleRef.current) {
+              clearInterval(pollHandleRef.current);
+              pollHandleRef.current = null;
+            }
+            patch(id, { status: "error" });
+            setGenerating(false);
+            return;
+          }
+          if (!res.ok) return; // transient — try again next tick
+          const data = (await res.json()) as { project: ServerProjectStatus };
+          const action = applyServerStatus(id, data.project);
+          if (action === "stop" && pollHandleRef.current) {
+            clearInterval(pollHandleRef.current);
+            pollHandleRef.current = null;
+          }
+        } catch {
+          /* network blip — keep polling */
+        }
+      }, POLL_INTERVAL_MS);
+    },
+    [applyServerStatus, patch],
+  );
+
   const startGeneration = useCallback(
     async (
       prompt: string,
       opts?: { followUp?: boolean; analysis?: ComplexityAnalysis },
     ) => {
       if (!project) return;
+      ownsStreamRef.current = true;
       setGenerating(true);
       setPartial("");
 
@@ -116,6 +265,10 @@ function GenerateInner() {
               model: project.model,
               analysis: opts?.analysis,
               complexityOverride: project.complexityOverride,
+              // NEW: tell the server which project this belongs to so it
+              // can write progress to the project store. The reconnect
+              // flow on /generate?id=X reads from this same id.
+              projectId: project.id,
             };
         const res = await fetch(endpoint, {
           method: "POST",
@@ -183,7 +336,15 @@ function GenerateInner() {
         }
 
         if (errorMsg) throw new Error(errorMsg);
-        if (!finalResult) throw new Error("No result returned");
+        if (!finalResult) {
+          // SSE closed without a `done` event but also without an explicit
+          // error. The most common cause is the user closing the tab
+          // mid-stream — the server kept running and finished the
+          // generation, but we never saw the result over THIS connection.
+          // The polling loop on next mount will pick it up; for now, fall
+          // through to the catch and rely on resume.
+          throw new Error("Stream ended without a final result");
+        }
 
         patch(project.id, {
           status: "done",
@@ -207,17 +368,41 @@ function GenerateInner() {
             null,
         );
       } catch (err) {
+        // We may have been disconnected mid-stream while the server keeps
+        // working. Don't immediately mark the project as error — first
+        // ask the server. If it's still generating or already done, the
+        // polling loop will recover; if it actually failed, we'll see
+        // status="error" on the next poll and surface it then.
+        const message = (err as Error).message;
+        const serverStillRunning = await pingServerStatus(project.id);
+        if (serverStillRunning) {
+          updateMessage(project.id, assistantMsgId, {
+            content:
+              "Connection dropped — generation is still running on the server. Reconnecting…",
+            status: "streaming",
+          });
+          startServerPolling(project.id);
+          return;
+        }
         patch(project.id, { status: "error" });
         updateMessage(project.id, assistantMsgId, {
-          content: `Generation failed: ${(err as Error).message}`,
+          content: `Generation failed: ${message}`,
           status: "error",
         });
-      } finally {
         setGenerating(false);
         setPartial("");
+      } finally {
+        ownsStreamRef.current = false;
       }
     },
-    [project, appendMessage, patch, updateMessage, incrementUsage],
+    [
+      project,
+      appendMessage,
+      patch,
+      updateMessage,
+      incrementUsage,
+      startServerPolling,
+    ],
   );
 
   // Pre-generation Quality Check: call /api/analyze, persist the result on
@@ -289,7 +474,9 @@ function GenerateInner() {
     [patch, startGeneration],
   );
 
-  // Autostart on first load if requested
+  // Autostart on first load if requested. This path runs ONLY on a fresh
+  // submit from the home page (?autostart=1). If the user lands here via
+  // a refresh of an in-progress project, the resume effect below handles it.
   useEffect(() => {
     if (!hydrated || !project || startedRef.current) return;
     if (!autostart) return;
@@ -302,6 +489,78 @@ function GenerateInner() {
       scroll: false,
     });
   }, [hydrated, project, autostart, router, runQualityCheckAndGenerate]);
+
+  /**
+   * Resume effect — runs on mount when the local zustand store says the
+   * project is in flight (`analyzing` / `generating`) but autostart was
+   * NOT requested. The user must have refreshed mid-stream, opened a
+   * second tab, or navigated back from /projects. Ask the server what's
+   * happening and either:
+   *
+   *   - resume showing live progress via polling (server still running),
+   *   - hydrate the local store with a finished result (server is done),
+   *   - or surface an error (server failed / forgot the project).
+   *
+   * The autostart path is gated separately above; this one fires only
+   * when autostart is absent.
+   */
+  useEffect(() => {
+    if (!hydrated || !project || startedRef.current) return;
+    if (autostart) return;
+    if (project.status !== "analyzing" && project.status !== "generating") {
+      return;
+    }
+    startedRef.current = true;
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(`/api/projects/${project.id}/status`, {
+          cache: "no-store",
+        });
+        if (cancelled) return;
+        if (res.status === 404) {
+          // Server has no record of this project. Most likely: the
+          // project was started against an ephemeral memory backend that
+          // didn't survive a serverless cold start, OR the user submitted
+          // before our deploy gained the project store. Either way,
+          // there's nothing to resume — mark as error so the user can
+          // re-submit.
+          patch(project.id, { status: "error" });
+          appendMessage(project.id, {
+            id: `m_${Date.now()}_a`,
+            role: "assistant",
+            content:
+              "I lost track of this generation across the refresh. Submit the prompt again to retry.",
+            status: "error",
+            createdAt: Date.now(),
+          });
+          return;
+        }
+        if (!res.ok) return;
+        const data = (await res.json()) as { project: ServerProjectStatus };
+        const action = applyServerStatus(project.id, data.project);
+        if (action === "continue") {
+          // Server still working — let the polling loop drive updates.
+          startServerPolling(project.id);
+        }
+      } catch {
+        /* network failure — leave state as-is, user can retry manually */
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    hydrated,
+    project,
+    autostart,
+    applyServerStatus,
+    startServerPolling,
+    patch,
+    appendMessage,
+  ]);
 
   // Track current project for the projects list
   useEffect(() => {
@@ -484,6 +743,34 @@ function GenerateInner() {
       />
     </div>
   );
+}
+
+/**
+ * Cheap one-shot status check used when our SSE reader gives up. Returns
+ * `true` if the server still considers the project to be running (so the
+ * UI should switch to polling instead of marking the project as failed).
+ */
+async function pingServerStatus(id: string): Promise<boolean> {
+  try {
+    const res = await fetch(`/api/projects/${id}/status`, { cache: "no-store" });
+    if (!res.ok) return false;
+    const data = (await res.json()) as {
+      project?: {
+        status: string;
+        stale?: boolean;
+      };
+    };
+    if (!data.project) return false;
+    if (data.project.stale) return false;
+    return (
+      data.project.status === "generating" ||
+      data.project.status === "analyzing" ||
+      data.project.status === "queued" ||
+      data.project.status === "done" // server already finished — let polling pull it
+    );
+  } catch {
+    return false;
+  }
 }
 
 function inferVerb(path: string): string {

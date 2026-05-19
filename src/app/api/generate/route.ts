@@ -9,6 +9,12 @@ import {
   quotaRemaining,
   userFromSession,
 } from "@/lib/user-store";
+import {
+  completeProject,
+  createProject,
+  failProject,
+  patchProject,
+} from "@/lib/project-store";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -34,6 +40,16 @@ interface Body {
    * gate it here — the prompt-box does — but we still clamp and clean.).
    */
   complexityOverride?: number;
+  /**
+   * Project id the client owns. When provided, the server writes its
+   * progress to the project store under this id, so a reconnecting client
+   * can poll /api/projects/{id}/status and resume showing live progress
+   * even if the SSE connection died (closed tab, browser refresh, mobile
+   * sleep, …). When absent, the route still streams but no background
+   * record is kept — used for one-off generations like the Stream demo
+   * in builtin-examples.
+   */
+  projectId?: string;
 }
 
 export async function POST(req: NextRequest) {
@@ -88,6 +104,48 @@ export async function POST(req: NextRequest) {
   // UI, so `complexityOverride` is normally absent for them.
   const complexity = resolveComplexity(body);
 
+  // ─── Background project record ────────────────────────────────────
+  // Create a record in the server project store so the client can resume
+  // via /api/projects/{id}/status if the SSE connection drops. This is
+  // what makes "close the tab, come back, the site is still being built"
+  // work — see lib/project-store.ts for the full rationale.
+  const projectId = body.projectId;
+  if (projectId) {
+    try {
+      await createProject({
+        id: projectId,
+        userId: user.id,
+        prompt,
+        model,
+        analysis: body.analysis ?? null,
+        complexityOverride: body.complexityOverride ?? null,
+        initialStatus: "generating",
+      });
+    } catch (err) {
+      // Storage failures are non-fatal — the SSE stream still works,
+      // we just can't recover after a disconnect. Log it and keep going.
+      console.warn("[generate] failed to create project record:", err);
+    }
+  }
+
+  // Throttled flush state for the project store. Without this we'd hit the
+  // disk (or Redis) on every chunk — 100s of writes per generation.
+  let partialBuffer = "";
+  let lastFlushAt = Date.now();
+  const FLUSH_INTERVAL_MS = 1500;
+
+  async function flushPartial(force = false): Promise<void> {
+    if (!projectId) return;
+    const now = Date.now();
+    if (!force && now - lastFlushAt < FLUSH_INTERVAL_MS) return;
+    lastFlushAt = now;
+    try {
+      await patchProject(projectId, { partial: partialBuffer });
+    } catch {
+      /* swallowed — partial flush is best-effort */
+    }
+  }
+
   const stream = new ReadableStream({
     async start(controller) {
       function send(event: object) {
@@ -100,6 +158,7 @@ export async function POST(req: NextRequest) {
         send({
           type: "start",
           model,
+          projectId,
           complexity: complexity
             ? {
                 score: complexity.score,
@@ -117,6 +176,11 @@ export async function POST(req: NextRequest) {
           {
             onChunk: (delta) => {
               send({ type: "chunk", delta });
+              partialBuffer += delta;
+              // Fire-and-forget flush — we don't await so the chunk
+              // dispatch stays tight. Lost flushes are harmless because
+              // the next chunk's flush will catch up.
+              void flushPartial();
             },
           },
           undefined,
@@ -126,9 +190,29 @@ export async function POST(req: NextRequest) {
         // Only count successful generations against the user's quota.
         await incrementUsage(user.id);
 
+        // Write the final result to the project store BEFORE pushing the
+        // SSE done event. If the client is still connected they get the
+        // result over SSE; if they're not, the next status poll picks it
+        // up from the store.
+        if (projectId) {
+          try {
+            await completeProject(projectId, result);
+          } catch (err) {
+            console.warn("[generate] failed to mark project done:", err);
+          }
+        }
+
         send({ type: "done", result });
       } catch (err) {
-        send({ type: "error", message: (err as Error).message });
+        const message = (err as Error).message;
+        if (projectId) {
+          try {
+            await failProject(projectId, message);
+          } catch {
+            /* swallowed */
+          }
+        }
+        send({ type: "error", message });
       } finally {
         controller.close();
       }
