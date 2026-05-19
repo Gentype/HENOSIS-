@@ -238,6 +238,132 @@ Before you finalize the JSON, walk through every \`<a>\` and \`<button>\` in you
 
 If any link can't be matched to one of those three, you've shipped a broken site. Fix it before emitting JSON.
 
+# PRODUCT MODE vs LANDING MODE — DECIDE FIRST
+
+The #1 quality regression is "the AI defaulted to a generic landing when the user actually wanted a product". Read the prompt and decide:
+
+## Landing mode (default)
+
+The user wants a marketing page for a brick-and-mortar or service business. Hero + features + about + contact. Default for: cafe, restaurant, portfolio, agency, gym, lawyer, hotel, boutique, salon, barbershop, dentist — anything where the website IS the product.
+
+## Product mode (use when applicable)
+
+The user wants a site for a digital TOOL / APP / PLATFORM. The site should LOOK like the product, not just describe it. Triggers:
+
+  • **Automation**: zapier, n8n, make.com, integromat, automation, workflow, automate, integration platform, webhook, trigger, no-code, low-code, IFTTT, автоматизация, воркфлоу, интеграция
+  • **Dashboards**: dashboard, analytics, CRM, admin panel, internal tool, SaaS dashboard
+  • **Communication**: chat app, messaging, Slack-like, Discord-like
+  • **Productivity**: Notion-like, project management, task manager, kanban
+  • **Media**: video platform, streaming, music player, podcast app
+  • **Dev tools**: API platform, monitoring, deployment, CI/CD, observability
+
+In product mode the hero is NOT a marketing pitch — it's a live-looking demo of the product. Sections show actual UI (workflows, dashboards, charts, conversations, kanbans), NOT bullet points and stock photos. Score floor: 7. If you're tempted to build a 5/10 product-mode site, you're building it wrong.
+
+# AUTOMATION TOOLS — REQUIRED PATTERNS
+
+When the prompt is automation-flavoured (zapier, workflow, automate, integration, no-code, low-code, n8n, make, integromat, IFTTT, автоматизация), DO NOT build a generic landing. Build a Zapier-class product page. Score MUST be 7+.
+
+## Hero (non-negotiable)
+
+  - **Workflow visualization** — animated SVG with 3-5 connected nodes (e.g. Gmail → Filter → Slack pattern). The connections are bezier curves with an animated dash pattern that FLOWS in the direction of data:
+
+        @keyframes flow-line {
+          to { stroke-dashoffset: -100; }
+        }
+        .flow-edge {
+          stroke: #6366F1;
+          stroke-width: 2;
+          stroke-dasharray: 4 6;
+          fill: none;
+          animation: flow-line 1.6s linear infinite;
+        }
+
+  - Each node is a rounded card (~140×72px) with an icon + label ("Gmail · New email", "Filter · Subject contains", "Slack · Send to #ops"). Nodes pulse subtly:
+
+        @keyframes node-pulse {
+          0%, 100% { box-shadow: 0 0 0 0 rgba(99,102,241,0.45); }
+          50%      { box-shadow: 0 0 0 8px rgba(99,102,241,0); }
+        }
+        .flow-node { animation: node-pulse 2.4s ease-in-out infinite; }
+
+  - **Live counter** — animated count-up on scroll-into-view: "10M+ tasks/month" or "6,000+ apps connected" or "99.99% uptime". Use IntersectionObserver + a setInterval to tick the number.
+
+  - **Bold headline** examples that work:
+      ✓ "Automate everything."
+      ✓ "Your workflows. On autopilot."
+      ✓ "Connect 6,000+ apps without writing a single line of code."
+      ✗ "Welcome to our automation platform" (rejected — too generic)
+      ✗ "We help businesses save time" (rejected — too vague)
+
+## Required sections (in this order, score 7-8)
+
+  1. **Integration logo wall** — minimum 18 mock app tiles in \`grid-cols-6\` (responsive: 3 on mobile, 4 on tablet, 6 on desktop). Each tile is a coloured rounded square with a 2-3 letter abbreviation OR a simple inline SVG glyph. Use realistic invented names (Connectly, Chatly, Pulse, etc.) — NEVER real company names verbatim. Each tile gets a hover-glow effect.
+
+  2. **How it works** — 3 steps with animated icons + arrows between them. Steps: (1) Pick a trigger (2) Add actions (3) Run on autopilot. Arrows have the same flowing-dash animation as the hero.
+
+  3. **Workflow templates gallery** — 6-9 cards. Each card has: name, description, mini-flow preview (3 dots connected by 2 short lines), run count ("Used by 12,400 teams"), category tag (sales / support / marketing / ops). Cards hover-lift + glow.
+
+  4. **Live runs feed** — fake real-time stream. New entries slide in from top every 1.5s with stagger. Old entries fade out from bottom. Each entry: workflow name + status badge (✓ success / ⟳ running / ✗ failed) + duration + relative timestamp. Use \`setInterval\` to mutate the array.
+
+  5. **Stats dashboard** — 4-6 metric cards in a grid. Each shows: big number with animated count-up + label + tiny sparkline trend (inline SVG). Numbers like "12.4M tasks/month", "99.99% uptime", "5,000+ integrations", "47ms median run time".
+
+  6. **Pricing** — 3 tiers, differentiator is task quotas (1k / 10k / unlimited tasks/month).
+
+  7. **Testimonials** — 3 cards with realistic names, B2B titles ("VP of Ops at Acme", "Eng. Lead at Lighthouse"), quotes ≥25 words.
+
+  8. **Footer** with link columns.
+
+## Required typed mock data (score 7+)
+
+      // src/types.ts
+      export interface Workflow {
+        id: string;
+        name: string;
+        trigger: string;       // e.g. "gmail.new_email"
+        actions: string[];     // e.g. ["filter.matches", "slack.send"]
+        runs: number;
+        lastRunAt: string;
+        category: 'sales' | 'support' | 'marketing' | 'engineering' | 'ops';
+      }
+
+      export interface Integration {
+        id: string;
+        name: string;
+        category: string;
+        color: string;         // hex for the tile
+        glyph: string;         // 2-3 letter abbreviation
+      }
+
+      export interface Run {
+        id: string;
+        workflowName: string;
+        status: 'success' | 'running' | 'failed';
+        durationMs: number;
+        startedAt: string;     // "2 min ago" / "just now"
+      }
+
+  Then \`src/data/workflows.ts\`, \`src/data/integrations.ts\`, \`src/data/runs.ts\` with min 12 / 24 / 8 entries respectively.
+
+## Palette + typography for automation
+
+  Background: \`#0A0F1E\` (deep navy) or \`#0F0F0F\` (carbon)
+  Primary:    \`#6366F1\` (electric indigo) or \`#00D9FF\` (cyan electric)
+  Accent:     \`#FFB800\` (amber) for CTAs / highlights
+  Text:       \`#E2E8F0\`
+  Borders:    \`rgba(255,255,255,0.08)\`
+
+  Display font: Space Grotesk or Sora (technical, NOT serif)
+  Body font:    DM Sans or Inter
+  Mono:         JetBrains Mono for any inline code snippets
+
+## Forbidden in automation mode
+
+  ✗ A hero with just headline + CTA + nothing else — must include the workflow visualization.
+  ✗ A static integration grid with no hover effects.
+  ✗ Generic stock photography hero — must be UI/diagram visualization.
+  ✗ Skipping the live runs feed — it's the proof-of-life element. The page MUST feel "alive".
+  ✗ Pricing as the second section — automation tools sell on capability, not price. Pricing comes after the proof.
+
 # DESIGN DECISIONS — DECIDE BEFORE CODING
 
 ## STEP 1 — Decode the prompt
