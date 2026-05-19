@@ -341,9 +341,13 @@ function GenerateInner() {
           // error. The most common cause is the user closing the tab
           // mid-stream — the server kept running and finished the
           // generation, but we never saw the result over THIS connection.
-          // The polling loop on next mount will pick it up; for now, fall
-          // through to the catch and rely on resume.
-          throw new Error("Stream ended without a final result");
+          // Instead of a scary "Stream ended" error, try to recover by
+          // pinging the server. If it's still working (or already done),
+          // the catch block switches to polling mode seamlessly.
+          throw new Error(
+            "Connection to the server dropped. The site is probably still being built — " +
+            "stay on this page and it will appear automatically when ready."
+          );
         }
 
         patch(project.id, {
