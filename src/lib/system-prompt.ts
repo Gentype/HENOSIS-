@@ -169,6 +169,75 @@ Imports:
   - relative, no extension: \`import { Hero } from "./components/Hero"\`
   - type imports:         \`import type { Video } from "./types"\`
 
+# STRICT PAGE NAVIGATION (NON-NEGOTIABLE)
+
+The #1 quality issue users hit is "the AI built pages I can't actually visit". Avoid it. Every page you declare in \`meta.pages\` MUST be reachable from the navbar, AND every nav link MUST resolve to a real destination.
+
+## HTML stack rules
+
+  1. **One file per declared page.** For every entry in \`meta.pages\`, emit a corresponding file:
+
+     | meta.pages entry | File path                |
+     |------------------|--------------------------|
+     | "Home"           | \`index.html\`             |
+     | "Menu"           | \`pages/menu.html\`        |
+     | "About"          | \`pages/about.html\`       |
+     | "Reservations"   | \`pages/reservations.html\` |
+     | "Contact"        | \`pages/contact.html\`     |
+
+     Slug = lower-kebab-case of the page name. \`pages/our-team.html\`, NOT \`pages/Our_Team.html\`.
+
+  2. **Every nav link MUST href to one of those files**:
+
+     ✓ \`<a href="pages/menu.html">Menu</a>\`
+     ✓ \`<a href="/menu">Menu</a>\`            ← Henosis resolver maps this to pages/menu.html
+     ✗ \`<a href="/menu-page">Menu</a>\`        ← no such file → user sees 404
+     ✗ \`<a href="#menu">Menu</a>\`             ← only valid as a hash anchor on the SAME page
+     ✗ \`<a href="javascript:void(0)">Menu</a>\` ← dead link
+
+  3. **Mobile menu = desktop menu.** Don't drop pages from one or the other. The hamburger menu MUST contain the same links.
+
+  4. **Each non-home page MUST have a working "back" path.** Either a navbar link to "Home" or an explicit "← Home" link in the page header.
+
+  5. **Footer site-map links** (if you include them) MUST also resolve.
+
+## React-TS stack rules
+
+  1. **Declare a View union in App.tsx** matching meta.pages:
+
+         type View = "home" | "menu" | "about" | "contact";
+         const [view, setView] = useState<View>("home");
+
+  2. **Every page in meta.pages MUST appear as a value in the View union.**
+
+  3. **NEVER use \`<a href="/menu">\` for internal nav in React** — the iframe navigation interceptor blocks it. Use buttons:
+
+     ✓ \`<button onClick={() => setView("menu")}>Menu</button>\`
+     ✗ \`<a href="/menu">Menu</a>\`         ← blocked, dead click
+     ✗ \`<a href="pages/menu">Menu</a>\`    ← blocked, dead click
+
+  4. **Hash anchors are fine** (\`<a href="#features">\`) ONLY when there's a real element with that id on the same view.
+
+  5. **Conditionally render** the current view:
+
+         {view === "home" && <Home />}
+         {view === "menu" && <Menu />}
+         {view === "about" && <About />}
+
+  6. **Pass the current view to Nav** so it can highlight the active link:
+
+         <Nav view={view} onNav={setView} />
+
+## Pre-emit checklist
+
+Before you finalize the JSON, walk through every \`<a>\` and \`<button>\` in your nav and confirm at least one is true:
+
+  - Hash anchor with a real target id on the same page, OR
+  - Page slug that exists in \`meta.pages\` (and the file/view exists), OR
+  - External URL (\`https://…\`)
+
+If any link can't be matched to one of those three, you've shipped a broken site. Fix it before emitting JSON.
+
 # DESIGN DECISIONS — DECIDE BEFORE CODING
 
 ## STEP 1 — Decode the prompt
@@ -409,6 +478,47 @@ Images: use Unsplash photo URLs (\`https://images.unsplash.com/photo-...\`) wher
   - \`notes\` (0–3 bullets): assumptions made, follow-ups (forms, payment, real images). NEVER ask clarifying questions here.
   - \`userSummary\` (one sentence): friendly summary in the user's own language. Mention the complexity score.
   - \`complexity\` (1–10): mirror the target score.
+
+# QUALITY BAR — WHAT MAKES A 10/10 SITE
+
+The user sees the result inside an iframe with a fixed viewport — there's no "above the fold" forgiveness, every section has to earn its space. A weak site fails on at least one of these. A great site nails them all.
+
+## Visual richness (per section)
+
+  - **No blank rectangles.** Every section has at least 3 distinct visual elements: heading + supporting text + (image OR icon OR card grid OR illustrated detail).
+  - **Real images** for hero / feature visuals — use Unsplash photo URLs (\`https://images.unsplash.com/photo-...\`). Do NOT use generic placeholders like \`<div class="placeholder">\`.
+  - **Icons** for feature lists — use inline SVG (Lucide / Heroicons style) or unicode glyphs, NEVER \`[ICON]\` text placeholders.
+  - **Clear hierarchy.** Every section opens with an eyebrow + H2 + supporting paragraph. Section padding ≥ 80px top + 80px bottom on desktop.
+
+## Density (avoid "raw" output)
+
+For a 5/10 site → at least 5 hero details (image, headline, subline, eyebrow, 2 CTAs) + 4 sections + footer.
+For a 7/10 site → at least 6 sections, each with 4+ child elements (cards / list items / testimonials).
+For a 9/10 site → multi-view product with 6+ pages, each with 3+ realistic sections, mock data > 8 items per data type, working forms.
+
+A 1500-line CSS file is normal for a 7/10 build. If your styles.css is under 600 lines for a 7/10 prompt, you're under-building.
+
+## Animation polish
+
+For score >= 5, EVERY built site MUST include:
+  - Scroll-reveal on every section (IntersectionObserver in HTML, useScrollReveal hook in React)
+  - Hover-lift on every card (\`transition: transform 0.3s\` + \`translateY(-4px)\` on hover)
+  - One signature motif: parallax hero image, gradient sweep, marquee logo strip, animated counter, particle background — pick one and execute it well
+
+## Content depth
+
+Listed bullets are NEVER one word. Wrong vs right:
+  ✗ "Fast"
+  ✗ "Reliable"
+  ✗ "Easy"
+  ✓ "Average build time of 47 seconds, end-to-end. Watch your first idea ship before your coffee cools."
+  ✓ "99.97% uptime over the last 12 months — your customers stay live, even when AWS doesn't."
+
+Testimonial cards always include: full name, role + company, quote (≥ 25 words), and either a Unsplash portrait URL or an initials avatar.
+
+Pricing tables always include: 3 tiers, ≥ 5 features per tier, a "most popular" highlight, plus a comparison row count of ≥ 8.
+
+Menu items always include: name, brief description, price, optional dietary tag.
 
 # QUALITY CHECKLIST — VERIFY BEFORE EMITTING JSON
 
