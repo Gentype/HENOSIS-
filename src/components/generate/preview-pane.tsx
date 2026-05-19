@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { GenerateResult, GenerateResultFile } from "@/lib/types";
 import {
   AlertCircle,
+  ChevronDown,
   ExternalLink,
   Home,
   Loader2,
@@ -11,6 +12,7 @@ import {
   RefreshCw,
   Smartphone,
   Tablet,
+  Terminal,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { assemblePreview, hasReactEntry } from "@/lib/preview-assembler";
@@ -74,6 +76,21 @@ export function PreviewPane({ result, generating, partialContent }: PreviewPaneP
   // feel laggy after a dozen refreshes.
   const blobUrlsRef = useRef<string[]>([]);
 
+  // Boot watchdog state. The iframe injects nav-interceptor.ts which posts
+  // `henosis-ready` once it has wired up listeners + wrapped console, then
+  // sends a `henosis-heartbeat` every second. If neither arrives within
+  // 10s of the srcDoc mounting, something prevented the iframe's scripts
+  // from running — bad srcDoc, CSP, blocked CDN — and the user deserves
+  // to see WHY rather than staring at a blank pane wondering which of
+  // the 12 emitted files isn't connected to the preview.
+  const [bootedAt, setBootedAt] = useState<number | null>(null);
+  const [lastHeartbeat, setLastHeartbeat] = useState<number | null>(null);
+  const [bootTimedOut, setBootTimedOut] = useState(false);
+  const [consoleMessages, setConsoleMessages] = useState<
+    Array<{ level: string; message: string; t: number }>
+  >([]);
+  const [showConsole, setShowConsole] = useState(false);
+
   const isReact = useMemo(
     () => (result ? hasReactEntry(result.files) : false),
     [result],
@@ -83,7 +100,21 @@ export function PreviewPane({ result, generating, partialContent }: PreviewPaneP
   useEffect(() => {
     setRoute("index.html");
     setRuntimeError(null);
+    setBootedAt(null);
+    setLastHeartbeat(null);
+    setBootTimedOut(false);
+    setConsoleMessages([]);
   }, [result]);
+
+  // Reset boot watchdog state when the user clicks "Reload" — same logic
+  // as a fresh result, just keyed off the reload counter.
+  useEffect(() => {
+    if (reloadKey === 0) return;
+    setBootedAt(null);
+    setLastHeartbeat(null);
+    setBootTimedOut(false);
+    setConsoleMessages([]);
+  }, [reloadKey]);
 
   // ─── iframe URL resolver (HTML mode) ──────────────────────────────
   const resolveHref = useCallback(
@@ -142,11 +173,30 @@ export function PreviewPane({ result, generating, partialContent }: PreviewPaneP
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [result, route, resolveHref, isReact, reloadKey]);
 
+  // ─── Boot watchdog ────────────────────────────────────────────────
+  // Starts when there's a srcDoc but no boot signal yet. Fires after 10s
+  // and flips the diagnostic banner on. The user can still click "Reload"
+  // to retry. This is what makes "the preview is empty / didn't show
+  // anything" debuggable instead of guesswork.
+  useEffect(() => {
+    if (!srcDoc || bootedAt) return;
+    const timer = window.setTimeout(() => {
+      setBootTimedOut(true);
+    }, 10_000);
+    return () => window.clearTimeout(timer);
+  }, [srcDoc, bootedAt, reloadKey]);
+
   // ─── Listen for messages from the iframe nav interceptor ──────────
   useEffect(() => {
     function onMessage(e: MessageEvent) {
       if (!e.data || typeof e.data !== "object") return;
-      const data = e.data as { type?: string; href?: string; message?: string };
+      const data = e.data as {
+        type?: string;
+        href?: string;
+        message?: string;
+        level?: string;
+        t?: number;
+      };
 
       switch (data.type) {
         case "henosis-nav": {
@@ -175,10 +225,51 @@ export function PreviewPane({ result, generating, partialContent }: PreviewPaneP
         case "henosis-runtime-error": {
           // Kept silent in the URL bar for minor errors; the iframe's
           // own error overlay handles the dramatic UI. We just light
-          // up the small badge in the chrome.
+          // up the small badge in the chrome and pin the message into
+          // the console panel for diagnosis.
           if (typeof data.message === "string" && data.message) {
             setRuntimeError(data.message);
+            setConsoleMessages((m) =>
+              [
+                ...m,
+                { level: "error", message: data.message ?? "", t: Date.now() },
+              ].slice(-50),
+            );
           }
+          return;
+        }
+        case "henosis-ready": {
+          // The iframe's nav-interceptor finished installing — scripts
+          // are running, console is wired, listeners are mounted. From
+          // here the watchdog is satisfied; if React still doesn't
+          // commit, the runtime error overlay handles it.
+          setBootedAt(Date.now());
+          setBootTimedOut(false);
+          setLastHeartbeat(Date.now());
+          return;
+        }
+        case "henosis-heartbeat": {
+          // 1Hz keep-alive from the iframe. Useful for "iframe loaded
+          // but is it actually alive?" diagnostics.
+          setLastHeartbeat(typeof data.t === "number" ? data.t : Date.now());
+          return;
+        }
+        case "henosis-console": {
+          // console.log/.warn/.error/.info from inside the iframe. We
+          // surface these in a collapsible console panel so the user
+          // can see what the AI's site is logging without opening
+          // browser devtools on the iframe.
+          if (typeof data.message !== "string") return;
+          setConsoleMessages((m) =>
+            [
+              ...m,
+              {
+                level: typeof data.level === "string" ? data.level : "log",
+                message: data.message ?? "",
+                t: Date.now(),
+              },
+            ].slice(-50),
+          );
           return;
         }
         default:
@@ -282,6 +373,32 @@ export function PreviewPane({ result, generating, partialContent }: PreviewPaneP
           </button>
           <button
             type="button"
+            onClick={() => setShowConsole((v) => !v)}
+            title="Show iframe console messages"
+            className={cn(
+              "inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-muted hover:text-foreground hover:bg-white/5 transition-colors relative",
+              showConsole && "bg-white/5 text-foreground",
+              consoleMessages.some((m) => m.level === "error") &&
+                "text-red-300 hover:text-red-200",
+            )}
+          >
+            <Terminal className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Console</span>
+            {consoleMessages.length > 0 && (
+              <span
+                className={cn(
+                  "absolute -top-1 -right-1 min-w-[14px] h-[14px] px-1 rounded-full text-[9px] font-semibold grid place-items-center",
+                  consoleMessages.some((m) => m.level === "error")
+                    ? "bg-red-500/80 text-white"
+                    : "bg-accent/80 text-black",
+                )}
+              >
+                {consoleMessages.length > 99 ? "99+" : consoleMessages.length}
+              </span>
+            )}
+          </button>
+          <button
+            type="button"
             onClick={openInNewTab}
             disabled={!srcDoc}
             title="Open this preview in a new browser tab"
@@ -321,6 +438,31 @@ export function PreviewPane({ result, generating, partialContent }: PreviewPaneP
           </div>
         ) : (
           <GeneratingState generating={generating} partial={partialContent} />
+        )}
+
+        {/* Diagnostic banner — surfaces when the iframe failed to boot
+            within 10s. Without this, the user just sees a blank white
+            rectangle and concludes "the AI is broken". */}
+        {srcDoc && bootTimedOut && !bootedAt && (
+          <DiagnosticBanner
+            result={result}
+            isReact={isReact}
+            runtimeError={runtimeError}
+            onReload={reloadIframe}
+            onOpenConsole={() => setShowConsole(true)}
+          />
+        )}
+
+        {/* Iframe console panel — slides up from the bottom when the user
+            clicks the Console button or when the boot watchdog fires.
+            Shows whatever the AI's site logged via console.log/.warn/
+            .error/.info, plus any unhandled errors. */}
+        {srcDoc && showConsole && (
+          <ConsolePanel
+            messages={consoleMessages}
+            onClose={() => setShowConsole(false)}
+            onClear={() => setConsoleMessages([])}
+          />
         )}
       </div>
     </div>
@@ -383,6 +525,170 @@ function GeneratingState({
           Ready when you are
         </h3>
         <p className="mt-2 text-sm text-muted">Send a prompt to start generating.</p>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Diagnostic banner — pinned to the top of the preview area when the
+ * boot watchdog times out (10s without a `henosis-ready` from the
+ * iframe). Tells the user exactly what files were generated, what the
+ * runtime tried, and the last runtime error if any. This is the
+ * difference between "the preview is empty so the AI is shit" and
+ * "ah, the preview's React entry couldn't find App.tsx — let me regen".
+ */
+function DiagnosticBanner({
+  result,
+  isReact,
+  runtimeError,
+  onReload,
+  onOpenConsole,
+}: {
+  result: GenerateResult | null;
+  isReact: boolean;
+  runtimeError: string | null;
+  onReload: () => void;
+  onOpenConsole: () => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const fileCount = result?.files.length ?? 0;
+  const fileList = result?.files.map((f) => f.path) ?? [];
+
+  return (
+    <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 max-w-xl w-[calc(100%-32px)]">
+      <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 backdrop-blur-md shadow-2xl shadow-black/60">
+        <div className="px-4 py-3 flex items-start gap-3">
+          <AlertCircle className="w-5 h-5 text-amber-300 shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-medium text-amber-100">
+              Preview didn't boot in 10 seconds
+            </div>
+            <div className="mt-1 text-xs text-amber-200/80 leading-relaxed">
+              The AI generated <strong>{fileCount} file{fileCount === 1 ? "" : "s"}</strong>{" "}
+              ({isReact ? "React + TypeScript" : "HTML"} mode), but the iframe never reported back.{" "}
+              The most common causes are a Babel/Tailwind CDN block, a syntax error in the
+              entry, or AI-emitted paths that don't match what the runtime expects.
+            </div>
+            {runtimeError && (
+              <div className="mt-2 text-[11px] font-mono text-red-200 bg-red-500/10 border border-red-500/30 rounded-md px-2 py-1.5 break-all">
+                <span className="opacity-60 uppercase tracking-wider mr-1">Error:</span>
+                {runtimeError}
+              </div>
+            )}
+            <div className="mt-3 flex items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={onReload}
+                className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-md bg-amber-300 text-black hover:bg-amber-200 transition-colors"
+              >
+                <RefreshCw className="w-3 h-3" /> Reload preview
+              </button>
+              <button
+                type="button"
+                onClick={onOpenConsole}
+                className="inline-flex items-center gap-1.5 px-3 py-1 text-xs rounded-md border border-amber-500/40 text-amber-100 hover:bg-amber-500/20 transition-colors"
+              >
+                <Terminal className="w-3 h-3" /> Open console
+              </button>
+              <button
+                type="button"
+                onClick={() => setExpanded((v) => !v)}
+                className="inline-flex items-center gap-1.5 px-3 py-1 text-xs rounded-md text-amber-200 hover:bg-amber-500/10 transition-colors"
+              >
+                <ChevronDown
+                  className={cn(
+                    "w-3 h-3 transition-transform",
+                    expanded && "rotate-180",
+                  )}
+                />
+                {expanded ? "Hide" : "Show"} files ({fileCount})
+              </button>
+            </div>
+            {expanded && (
+              <ul className="mt-3 max-h-48 overflow-auto scroll-soft text-[11px] font-mono text-amber-100/90 space-y-0.5 pr-2">
+                {fileList.map((path) => (
+                  <li
+                    key={path}
+                    className="px-2 py-0.5 rounded hover:bg-amber-500/10 truncate"
+                    title={path}
+                  >
+                    {path}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Console panel — slides up from the bottom of the preview area. Shows
+ * console.log / .warn / .error / .info messages forwarded from inside
+ * the iframe by the nav-interceptor. Capped at 50 messages so a runaway
+ * loop doesn't blow the workshop's memory.
+ */
+function ConsolePanel({
+  messages,
+  onClose,
+  onClear,
+}: {
+  messages: Array<{ level: string; message: string; t: number }>;
+  onClose: () => void;
+  onClear: () => void;
+}) {
+  return (
+    <div className="absolute bottom-0 inset-x-0 z-20 mx-3 mb-3 max-h-[40%] flex flex-col rounded-xl border border-white/10 bg-black/95 backdrop-blur-xl shadow-2xl shadow-black/60">
+      <div className="h-9 px-3 border-b border-white/10 flex items-center justify-between text-xs">
+        <div className="flex items-center gap-2 text-foreground">
+          <Terminal className="w-3.5 h-3.5 text-accent" />
+          <span className="font-medium">Iframe console</span>
+          <span className="text-subtle">{messages.length} message{messages.length === 1 ? "" : "s"}</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={onClear}
+            disabled={messages.length === 0}
+            className="px-2 py-0.5 rounded text-subtle hover:text-foreground hover:bg-white/5 transition-colors disabled:opacity-40"
+          >
+            Clear
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-2 py-0.5 rounded text-subtle hover:text-foreground hover:bg-white/5 transition-colors"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+      <div className="flex-1 overflow-auto scroll-soft p-2 font-mono text-[11px] leading-relaxed">
+        {messages.length === 0 ? (
+          <div className="text-subtle px-2 py-1">
+            No messages yet. The iframe&apos;s console output will stream here in real time.
+          </div>
+        ) : (
+          messages.map((m, i) => (
+            <div
+              key={i}
+              className={cn(
+                "px-2 py-1 rounded flex gap-2",
+                m.level === "error" && "text-red-300 bg-red-500/5",
+                m.level === "warn" && "text-amber-200 bg-amber-500/5",
+                (m.level === "log" || m.level === "info") && "text-foreground/80",
+              )}
+            >
+              <span className="text-subtle shrink-0 uppercase tracking-wider w-10 text-[9px] mt-0.5">
+                {m.level}
+              </span>
+              <span className="flex-1 break-all whitespace-pre-wrap">{m.message}</span>
+            </div>
+          ))
+        )}
       </div>
     </div>
   );

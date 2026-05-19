@@ -364,6 +364,290 @@ When the prompt is automation-flavoured (zapier, workflow, automate, integration
   ✗ Skipping the live runs feed — it's the proof-of-life element. The page MUST feel "alive".
   ✗ Pricing as the second section — automation tools sell on capability, not price. Pricing comes after the proof.
 
+# CONCRETE IMPLEMENTATIONS — COPY-PASTE READY
+
+The most common quality regressions ("burger menu doesn't open", "no animations", "hero is just a headline + button") happen because the AI tried to write these from scratch and got it half-right. Don't. The snippets below are ready to use verbatim. Copy them into the appropriate file with minimal edits (rename Brand, swap colors). If your build is missing any of the patterns below for a score >= 5 prompt, the build is REJECTED.
+
+## Mobile burger menu (React-TS stack)
+
+      // src/components/Nav.tsx
+      import React, { useState } from "react";
+
+      interface NavProps {
+        view?: string;
+        onNav?: (v: string) => void;
+      }
+
+      export function Nav({ view, onNav }: NavProps): JSX.Element {
+        const [open, setOpen] = useState(false);
+        const links = [
+          { id: "features", label: "Features" },
+          { id: "pricing",  label: "Pricing"  },
+          { id: "about",    label: "About"    },
+        ];
+        return (
+          <>
+            <nav className="fixed top-0 inset-x-0 z-40 backdrop-blur-md bg-black/60 border-b border-white/10">
+              <div className="max-w-7xl mx-auto h-16 px-6 flex items-center justify-between">
+                <a href="#" className="font-display text-xl tracking-tight">Brand</a>
+                <ul className="hidden md:flex gap-8 text-sm opacity-90">
+                  {links.map(l => (
+                    <li key={l.id}>
+                      <button
+                        type="button"
+                        onClick={() => onNav?.(l.id)}
+                        className={\`hover:opacity-100 transition-opacity \${view === l.id ? "opacity-100" : "opacity-70"}\`}
+                      >
+                        {l.label}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+                <button
+                  type="button"
+                  className="md:hidden p-2 -mr-2 rounded-md hover:bg-white/10 transition-colors"
+                  aria-label={open ? "Close menu" : "Open menu"}
+                  aria-expanded={open}
+                  onClick={() => setOpen(o => !o)}
+                >
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    {open
+                      ? <path d="M18 6L6 18M6 6l12 12" />
+                      : <path d="M4 6h16M4 12h16M4 18h16" />}
+                  </svg>
+                </button>
+              </div>
+            </nav>
+            <div
+              className={\`md:hidden fixed inset-x-0 top-16 z-30 bg-black/95 backdrop-blur-xl border-b border-white/10 transition-all duration-300 \${open ? "translate-y-0 opacity-100 pointer-events-auto" : "-translate-y-2 opacity-0 pointer-events-none"}\`}
+            >
+              <ul className="px-6 py-4 flex flex-col gap-4 text-base">
+                {links.map(l => (
+                  <li key={l.id}>
+                    <button
+                      type="button"
+                      onClick={() => { onNav?.(l.id); setOpen(false); }}
+                      className="block w-full text-left py-2"
+                    >
+                      {l.label}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </>
+        );
+      }
+
+## Mobile burger menu (HTML stack)
+
+In \`index.html\`:
+
+      <nav class="fixed top-0 inset-x-0 z-40 backdrop-blur-md bg-black/60 border-b border-white/10">
+        <div class="max-w-7xl mx-auto h-16 px-6 flex items-center justify-between">
+          <a href="#" class="font-display text-xl tracking-tight">Brand</a>
+          <ul class="hidden md:flex gap-8 text-sm">
+            <li><a href="#features" class="opacity-80 hover:opacity-100 transition-opacity">Features</a></li>
+            <li><a href="#pricing"  class="opacity-80 hover:opacity-100 transition-opacity">Pricing</a></li>
+            <li><a href="#about"    class="opacity-80 hover:opacity-100 transition-opacity">About</a></li>
+          </ul>
+          <button id="hb-burger" class="md:hidden p-2 -mr-2 rounded-md hover:bg-white/10 transition-colors" aria-label="Open menu" aria-expanded="false">
+            <svg id="hb-icon-open"  width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+            <svg id="hb-icon-close" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none"><path d="M18 6L6 18M6 6l12 12"/></svg>
+          </button>
+        </div>
+      </nav>
+
+      <div id="hb-mobile-menu" class="md:hidden fixed inset-x-0 top-16 z-30 bg-black/95 backdrop-blur-xl border-b border-white/10 -translate-y-2 opacity-0 pointer-events-none transition-all duration-300">
+        <ul class="px-6 py-4 flex flex-col gap-4 text-base">
+          <li><a href="#features" class="block py-2">Features</a></li>
+          <li><a href="#pricing"  class="block py-2">Pricing</a></li>
+          <li><a href="#about"    class="block py-2">About</a></li>
+        </ul>
+      </div>
+
+In \`script.js\`:
+
+      (function() {
+        var burger = document.getElementById('hb-burger');
+        var menu   = document.getElementById('hb-mobile-menu');
+        var iOpen  = document.getElementById('hb-icon-open');
+        var iClose = document.getElementById('hb-icon-close');
+        var open = false;
+        function setOpen(next) {
+          open = next;
+          burger.setAttribute('aria-expanded', String(open));
+          iOpen.style.display  = open ? 'none'  : '';
+          iClose.style.display = open ? ''      : 'none';
+          menu.classList.toggle('translate-y-0',     open);
+          menu.classList.toggle('opacity-100',       open);
+          menu.classList.toggle('pointer-events-auto', open);
+          menu.classList.toggle('-translate-y-2',    !open);
+          menu.classList.toggle('opacity-0',         !open);
+          menu.classList.toggle('pointer-events-none', !open);
+        }
+        burger.addEventListener('click', function() { setOpen(!open); });
+        // Close the menu when any link inside it is clicked.
+        menu.querySelectorAll('a').forEach(function(a) {
+          a.addEventListener('click', function() { setOpen(false); });
+        });
+      })();
+
+## Scroll reveal (universal)
+
+CSS — add to \`styles.css\` or \`src/styles.css\`:
+
+      .reveal-up {
+        opacity: 0;
+        transform: translateY(24px);
+        transition: opacity 0.7s cubic-bezier(.2,.8,.2,1),
+                    transform 0.7s cubic-bezier(.2,.8,.2,1);
+      }
+      .reveal-up.in {
+        opacity: 1;
+        transform: translateY(0);
+      }
+
+React — \`src/lib/useScrollReveal.ts\`:
+
+      import { useEffect } from "react";
+      export function useScrollReveal(): void {
+        useEffect(() => {
+          const io = new IntersectionObserver(
+            (entries) => entries.forEach((e) => {
+              if (e.isIntersecting) {
+                e.target.classList.add("in");
+                io.unobserve(e.target);
+              }
+            }),
+            { threshold: 0.1 },
+          );
+          document.querySelectorAll(".reveal-up").forEach((el) => io.observe(el));
+          return () => io.disconnect();
+        }, []);
+      }
+
+  Then call \`useScrollReveal()\` once at the top of \`App.tsx\` and add
+  \`className="reveal-up"\` to every element you want to animate in.
+
+HTML — append to \`script.js\`:
+
+      (function() {
+        var io = new IntersectionObserver(function(entries) {
+          entries.forEach(function(e) {
+            if (e.isIntersecting) {
+              e.target.classList.add('in');
+              io.unobserve(e.target);
+            }
+          });
+        }, { threshold: 0.1 });
+        document.querySelectorAll('.reveal-up').forEach(function(el) { io.observe(el); });
+      })();
+
+## Hover-lift card (Tailwind, both stacks)
+
+      <article className="group bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl p-8 hover:-translate-y-1 hover:border-white/25 hover:bg-white/10 transition-all duration-300 cursor-pointer reveal-up">
+        <div className="w-10 h-10 rounded-xl bg-[var(--accent)]/20 grid place-items-center mb-5 group-hover:bg-[var(--accent)]/30 transition-colors">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M5 12l5 5L20 7" />
+          </svg>
+        </div>
+        <h3 className="text-xl font-display tracking-tight">Concrete benefit headline</h3>
+        <p className="mt-3 text-sm opacity-70 leading-relaxed">
+          One specific sentence that names a number, an outcome, or a real customer scenario.
+        </p>
+      </article>
+
+## Hero — proper structure (use this exact scaffold)
+
+      <section className="relative min-h-screen flex items-center px-6 overflow-hidden">
+        {/* Background ornament — never ship a hero without one. */}
+        <div className="absolute inset-0 -z-10">
+          <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-[var(--accent)]/20 rounded-full blur-3xl animate-pulse" />
+          <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-[var(--primary)]/15 rounded-full blur-3xl animate-pulse [animation-delay:2s]" />
+        </div>
+        <div className="max-w-7xl mx-auto w-full">
+          <p className="font-mono text-xs uppercase tracking-[0.2em] opacity-55 reveal-up">
+            Eyebrow · Specific Detail
+          </p>
+          <h1 className="font-display text-[clamp(48px,8vw,108px)] leading-[1.02] tracking-tight mt-4 reveal-up">
+            First line of headline<br />
+            <span className="text-[var(--accent)]">second line, accent.</span>
+          </h1>
+          <p className="max-w-xl text-lg opacity-80 mt-8 reveal-up">
+            One concrete sentence about the value with a real number or proof point.
+          </p>
+          <div className="flex gap-3 flex-wrap mt-8 reveal-up">
+            <a href="#cta" className="px-7 py-3.5 rounded-xl bg-[var(--accent)] text-black font-medium hover:brightness-110 transition">
+              Primary CTA
+            </a>
+            <a href="#secondary" className="px-7 py-3.5 rounded-xl border border-white/15 hover:bg-white/5 transition">
+              Secondary
+            </a>
+          </div>
+        </div>
+      </section>
+
+A hero that is just \`<h1>Welcome</h1> + <button>Sign up</button>\` is REJECTED. The hero MUST have: eyebrow + multi-line H1 with accent span + max-width subline + 2 CTAs + background ornament + reveal-up classes. Copy the scaffold above.
+
+## Workflow visualization (automation prompts)
+
+For the automation hero — drop this into \`src/components/Hero.tsx\` (React) or directly inside \`<section class="hero">\` in \`index.html\` (HTML stack uses Tailwind classes too):
+
+      <div className="relative w-full max-w-2xl mx-auto mt-12 reveal-up">
+        <svg viewBox="0 0 600 220" className="w-full h-auto">
+          {/* Connections — bezier curves with flowing dash */}
+          <path d="M 100 110 C 180 110, 220 60, 300 60" className="flow-edge" />
+          <path d="M 300 60  C 380 60, 420 110, 500 110" className="flow-edge" />
+          <path d="M 100 110 C 180 110, 220 160, 300 160" className="flow-edge [animation-delay:.4s]" />
+          {/* Nodes */}
+          <foreignObject x="20" y="80" width="160" height="60">
+            <div className="flow-node bg-[#0F1729] border border-[#6366F1]/40 rounded-xl px-4 py-3 text-white">
+              <div className="text-[10px] uppercase tracking-wider opacity-60">Trigger</div>
+              <div className="text-sm font-medium mt-1">Gmail · New email</div>
+            </div>
+          </foreignObject>
+          <foreignObject x="220" y="30" width="160" height="60">
+            <div className="flow-node bg-[#0F1729] border border-[#6366F1]/40 rounded-xl px-4 py-3 text-white [animation-delay:.6s]">
+              <div className="text-[10px] uppercase tracking-wider opacity-60">Filter</div>
+              <div className="text-sm font-medium mt-1">Subject contains</div>
+            </div>
+          </foreignObject>
+          <foreignObject x="220" y="130" width="160" height="60">
+            <div className="flow-node bg-[#0F1729] border border-[#6366F1]/40 rounded-xl px-4 py-3 text-white [animation-delay:1.2s]">
+              <div className="text-[10px] uppercase tracking-wider opacity-60">Action</div>
+              <div className="text-sm font-medium mt-1">Sheets · Append</div>
+            </div>
+          </foreignObject>
+          <foreignObject x="420" y="80" width="160" height="60">
+            <div className="flow-node bg-[#0F1729] border border-[#6366F1]/40 rounded-xl px-4 py-3 text-white [animation-delay:1.8s]">
+              <div className="text-[10px] uppercase tracking-wider opacity-60">Action</div>
+              <div className="text-sm font-medium mt-1">Slack · Send to #ops</div>
+            </div>
+          </foreignObject>
+        </svg>
+      </div>
+
+  Plus this CSS in \`styles.css\` / \`src/styles.css\`:
+
+      @keyframes flow-line {
+        to { stroke-dashoffset: -100; }
+      }
+      .flow-edge {
+        stroke: #6366F1;
+        stroke-width: 2;
+        stroke-dasharray: 4 6;
+        fill: none;
+        animation: flow-line 1.6s linear infinite;
+      }
+      @keyframes node-pulse {
+        0%, 100% { box-shadow: 0 0 0 0 rgba(99,102,241,0.45); }
+        50%      { box-shadow: 0 0 0 8px rgba(99,102,241,0); }
+      }
+      .flow-node {
+        animation: node-pulse 2.4s ease-in-out infinite;
+      }
+
 # DESIGN DECISIONS — DECIDE BEFORE CODING
 
 ## STEP 1 — Decode the prompt
