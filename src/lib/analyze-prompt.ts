@@ -105,9 +105,19 @@ nothing about size or page count.
    one of these:
      YouTube, Twitter/X, Spotify, Notion, Linear, Figma, Netflix, TikTok,
      Twitch, Vimeo, Instagram, Reddit, Discord, Slack, Airbnb, Amazon,
-     Uber, Trello, Asana
+     Uber, Trello, Asana, Zapier, n8n, Make, Integromat, Airtable, Stripe,
+     Vercel, Supabase, Webflow
    → minimum 7. NOT 8+ unless the user explicitly asks for dashboards or
    admin panels.
+
+2b. AUTOMATION / WORKFLOW / INTEGRATION TOOLS get score 8 by default. Trigger
+    keywords: automation, automate, workflow, zapier, n8n, make, integromat,
+    integration platform, webhook, trigger, no-code, low-code, IFTTT,
+    автоматизация, воркфлоу, интеграция. The Site Architect has a dedicated
+    "AUTOMATION TOOLS — REQUIRED PATTERNS" section and needs the headroom
+    of an 8/10 build (workflow visualization, live runs feed, integration
+    wall, mock data files). Score 9 if the user explicitly asks for an
+    admin dashboard or multi-step builder UI.
 
 3. The prompt EXPLICITLY enumerates many pages ("with home, pricing,
    features, FAQ, blog, contact", "dashboard with charts and tables",
@@ -366,9 +376,34 @@ function fallbackAnalysis(prompt: string): ComplexityAnalysis {
     };
   }
 
+  // Automation / workflow / integration platforms — 8/10. The system
+  // prompt has a dedicated AUTOMATION TOOLS section that demands a
+  // workflow visualization, live runs feed, integration wall, and typed
+  // mock data — that's an 8 by the rubric, not a 7.
+  if (
+    /(automation|automate|workflow|zapier|n8n|integromat|make\.com|integration\s*platform|no.?code|low.?code|ifttt|webhook|автоматизац|интеграц|воркфлоу)/.test(
+      p,
+    )
+  ) {
+    return {
+      score: 8,
+      stack: "react-ts",
+      tier: "Full product",
+      reasoning:
+        "Automation tool — defaulted to 8/10 for workflow visualization + live runs + integration wall.",
+      recommendedPages: [
+        "Home",
+        "Workflows",
+        "Integrations",
+        "Templates",
+        "Pricing",
+      ],
+    };
+  }
+
   // Explicit named product clones — 7/10.
   if (
-    /(youtube|youtub|ютуб|spotify|twitter\b|twitter\/x|netflix|tiktok|twitch|vimeo|instagram|reddit|notion|linear|figma|slack|airbnb|amazon|trello|asana)/.test(
+    /(youtube|youtub|ютуб|spotify|twitter\b|twitter\/x|netflix|tiktok|twitch|vimeo|instagram|reddit|notion|linear|figma|slack|airbnb|amazon|trello|asana|airtable|stripe|vercel|supabase|webflow)/.test(
       p,
     )
   ) {
