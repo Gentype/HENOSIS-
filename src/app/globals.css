@@ -1110,3 +1110,298 @@ a,
 .scroll-soft::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.16);
 }
+
+
+/* ───────────────────────────────────────────────────────────────
+   MeshBackground — Premium layered backdrop for the homepage hero.
+   Seven distinct visual layers combine to create a premium,
+   Apple-quality depth effect: radial warmth, morphing mesh blobs,
+   perspective grid, floating orbs (canvas), film grain, vignette,
+   and an edge light streak.
+   ─────────────────────────────────────────────────────────────── */
+.mesh-bg {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 0;
+  --mesh-amp: 1;
+}
+
+/* Layer 1: Deep radial warmth — centres attention */
+.mesh-bg__depth {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 80% 60% at 50% 35%, rgba(184, 227, 201, 0.06) 0%, transparent 60%),
+    radial-gradient(ellipse 50% 80% at 30% 70%, rgba(109, 217, 158, 0.04) 0%, transparent 50%),
+    radial-gradient(ellipse 50% 80% at 75% 60%, rgba(184, 227, 201, 0.03) 0%, transparent 55%);
+}
+
+/* Layer 2: Morphing mesh gradient — organic flowing blobs */
+.mesh-bg__mesh {
+  position: absolute;
+  inset: -20%;
+  filter: blur(80px);
+  opacity: calc(0.7 * var(--mesh-amp));
+  mix-blend-mode: screen;
+}
+
+.mesh-bg__blob {
+  position: absolute;
+  border-radius: 40% 60% 55% 45% / 55% 40% 60% 45%;
+  will-change: transform, border-radius;
+  animation: mesh-morph-1 20s ease-in-out infinite alternate;
+}
+
+.mesh-bg__blob--1 {
+  width: 50%;
+  height: 50%;
+  top: 5%;
+  left: 10%;
+  background: radial-gradient(ellipse at 30% 40%, rgba(184, 227, 201, 0.35), rgba(109, 217, 158, 0.15), transparent 70%);
+  animation-name: mesh-morph-1;
+  animation-duration: 18s;
+}
+
+.mesh-bg__blob--2 {
+  width: 45%;
+  height: 55%;
+  top: 15%;
+  right: 5%;
+  background: radial-gradient(ellipse at 60% 50%, rgba(109, 217, 158, 0.3), rgba(184, 227, 201, 0.1), transparent 70%);
+  animation-name: mesh-morph-2;
+  animation-duration: 22s;
+  animation-delay: -4s;
+}
+
+.mesh-bg__blob--3 {
+  width: 55%;
+  height: 45%;
+  bottom: 10%;
+  left: 20%;
+  background: radial-gradient(ellipse at 50% 70%, rgba(212, 241, 224, 0.25), rgba(184, 227, 201, 0.08), transparent 65%);
+  animation-name: mesh-morph-3;
+  animation-duration: 25s;
+  animation-delay: -8s;
+}
+
+.mesh-bg__blob--4 {
+  width: 35%;
+  height: 35%;
+  top: 40%;
+  left: 50%;
+  background: radial-gradient(ellipse at 50% 50%, rgba(255, 255, 255, 0.12), rgba(184, 227, 201, 0.06), transparent 70%);
+  animation-name: mesh-morph-4;
+  animation-duration: 16s;
+  animation-delay: -2s;
+}
+
+.mesh-bg__blob--5 {
+  width: 40%;
+  height: 40%;
+  bottom: 5%;
+  right: 15%;
+  background: radial-gradient(ellipse at 40% 60%, rgba(109, 217, 158, 0.2), transparent 65%);
+  animation-name: mesh-morph-5;
+  animation-duration: 28s;
+  animation-delay: -12s;
+}
+
+@keyframes mesh-morph-1 {
+  0% {
+    border-radius: 40% 60% 55% 45% / 55% 40% 60% 45%;
+    transform: translate3d(0, 0, 0) rotate(0deg) scale(1);
+  }
+  33% {
+    border-radius: 55% 45% 40% 60% / 45% 60% 40% 55%;
+    transform: translate3d(4vw, 2vw, 0) rotate(3deg) scale(1.05);
+  }
+  66% {
+    border-radius: 45% 55% 60% 40% / 60% 45% 55% 40%;
+    transform: translate3d(-2vw, 5vw, 0) rotate(-2deg) scale(0.98);
+  }
+  100% {
+    border-radius: 60% 40% 45% 55% / 40% 55% 45% 60%;
+    transform: translate3d(3vw, -2vw, 0) rotate(4deg) scale(1.03);
+  }
+}
+
+@keyframes mesh-morph-2 {
+  0% {
+    border-radius: 55% 45% 50% 50% / 50% 55% 45% 50%;
+    transform: translate3d(0, 0, 0) rotate(0deg) scale(1);
+  }
+  33% {
+    border-radius: 45% 55% 60% 40% / 55% 45% 50% 50%;
+    transform: translate3d(-5vw, 3vw, 0) rotate(-4deg) scale(1.08);
+  }
+  66% {
+    border-radius: 50% 50% 45% 55% / 45% 50% 55% 50%;
+    transform: translate3d(3vw, -4vw, 0) rotate(2deg) scale(0.95);
+  }
+  100% {
+    border-radius: 60% 40% 55% 45% / 50% 60% 40% 55%;
+    transform: translate3d(-3vw, 5vw, 0) rotate(-3deg) scale(1.04);
+  }
+}
+
+@keyframes mesh-morph-3 {
+  0% {
+    border-radius: 50% 50% 45% 55% / 55% 45% 55% 45%;
+    transform: translate3d(0, 0, 0) rotate(0deg) scale(1);
+  }
+  50% {
+    border-radius: 45% 55% 55% 45% / 50% 50% 50% 50%;
+    transform: translate3d(6vw, -3vw, 0) rotate(5deg) scale(1.1);
+  }
+  100% {
+    border-radius: 55% 45% 50% 50% / 45% 55% 45% 55%;
+    transform: translate3d(-4vw, 4vw, 0) rotate(-3deg) scale(0.96);
+  }
+}
+
+@keyframes mesh-morph-4 {
+  0% {
+    border-radius: 45% 55% 50% 50% / 50% 50% 55% 45%;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    border-radius: 55% 45% 55% 45% / 45% 55% 45% 55%;
+    transform: translate3d(-3vw, -4vw, 0) scale(1.12);
+  }
+  100% {
+    border-radius: 50% 50% 45% 55% / 55% 45% 50% 50%;
+    transform: translate3d(4vw, 3vw, 0) scale(0.92);
+  }
+}
+
+@keyframes mesh-morph-5 {
+  0% {
+    border-radius: 55% 45% 55% 45% / 45% 55% 50% 50%;
+    transform: translate3d(0, 0, 0) rotate(0deg) scale(1);
+  }
+  33% {
+    border-radius: 45% 55% 45% 55% / 55% 45% 55% 45%;
+    transform: translate3d(5vw, 4vw, 0) rotate(3deg) scale(1.06);
+  }
+  66% {
+    border-radius: 50% 50% 55% 45% / 50% 50% 45% 55%;
+    transform: translate3d(-4vw, -3vw, 0) rotate(-2deg) scale(0.97);
+  }
+  100% {
+    border-radius: 55% 45% 50% 50% / 45% 55% 55% 45%;
+    transform: translate3d(2vw, -5vw, 0) rotate(4deg) scale(1.04);
+  }
+}
+
+/* Layer 3: Perspective grid — futuristic depth lines */
+.mesh-bg__grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(to right, rgba(184, 227, 201, 0.04) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(184, 227, 201, 0.04) 1px, transparent 1px);
+  background-size: 80px 80px;
+  transform: perspective(600px) rotateX(55deg) translateY(10%);
+  transform-origin: 50% 100%;
+  opacity: calc(0.6 * var(--mesh-amp));
+  mask-image:
+    linear-gradient(to top, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0.3) 40%, transparent 70%),
+    radial-gradient(ellipse 60% 80% at 50% 100%, black 20%, transparent 70%);
+  -webkit-mask-image:
+    linear-gradient(to top, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0.3) 40%, transparent 70%);
+  mask-composite: intersect;
+  animation: grid-pulse 8s ease-in-out infinite;
+}
+
+@keyframes grid-pulse {
+  0%, 100% { opacity: calc(0.4 * var(--mesh-amp)); }
+  50%      { opacity: calc(0.7 * var(--mesh-amp)); }
+}
+
+/* Layer 5: Film grain / noise texture */
+.mesh-bg__noise {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  opacity: 0.035;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+  background-size: 256px 256px;
+  animation: noise-shift 0.5s steps(3) infinite;
+}
+
+@keyframes noise-shift {
+  0%   { transform: translate(0, 0); }
+  33%  { transform: translate(-2px, 1px); }
+  66%  { transform: translate(1px, -2px); }
+  100% { transform: translate(0, 0); }
+}
+
+/* Layer 6: Vignette — focuses the eye inward */
+.mesh-bg__vignette {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  background: radial-gradient(
+    ellipse 70% 60% at 50% 40%,
+    transparent 30%,
+    rgba(0, 0, 0, 0.4) 80%,
+    rgba(0, 0, 0, 0.7) 100%
+  );
+}
+
+/* Layer 7: Top edge light streak — soft horizontal glow */
+.mesh-bg__streak {
+  position: absolute;
+  top: 0;
+  left: 10%;
+  right: 10%;
+  height: 1px;
+  z-index: 7;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(184, 227, 201, 0.3) 20%,
+    rgba(255, 255, 255, 0.5) 50%,
+    rgba(184, 227, 201, 0.3) 80%,
+    transparent 100%
+  );
+  box-shadow:
+    0 0 20px 4px rgba(184, 227, 201, 0.15),
+    0 0 60px 10px rgba(184, 227, 201, 0.08);
+  animation: streak-breathe 4s ease-in-out infinite;
+}
+
+@keyframes streak-breathe {
+  0%, 100% { opacity: 0.6; transform: scaleX(0.9); }
+  50%      { opacity: 1; transform: scaleX(1); }
+}
+
+/* Mobile: dim effect to save battery / reduce visual noise */
+@media (max-width: 640px) {
+  .mesh-bg { --mesh-amp: 0.5; }
+  .mesh-bg__mesh { filter: blur(100px); opacity: 0.5; }
+  .mesh-bg__grid { opacity: 0.2; background-size: 50px 50px; }
+  .mesh-bg__noise { opacity: 0.02; }
+  .mesh-bg__vignette {
+    background: radial-gradient(
+      ellipse 80% 70% at 50% 40%,
+      transparent 20%,
+      rgba(0, 0, 0, 0.5) 80%,
+      rgba(0, 0, 0, 0.8) 100%
+    );
+  }
+}
+
+/* Reduced motion: kill all animations, keep static aesthetic */
+@media (prefers-reduced-motion: reduce) {
+  .mesh-bg__blob,
+  .mesh-bg__noise,
+  .mesh-bg__grid,
+  .mesh-bg__streak {
+    animation: none !important;
+  }
+}

@@ -8,16 +8,16 @@ import { Sparkles, MessageSquareCode, Zap } from "lucide-react";
 
 export default function HomePage() {
   return (
-    <>
+    <div className="relative min-h-screen flex flex-col bg-background">
       <Navbar />
-      <main className="flex-1">
+      <main className="flex-1 relative z-[1]">
         <Hero />
         <FeatureStrip />
         <ExamplesGrid />
         <FinalCta />
       </main>
       <Footer />
-    </>
+    </div>
   );
 }
 
