@@ -203,16 +203,21 @@ export function buildMessagesForGeneration(
   const messages: OpenRouterMessage[] = [];
 
   // 1. System block — cached so subsequent calls only pay for new tokens.
-  messages.push({
-    role: "system",
-    content: [
-      {
-        type: "text",
-        text: systemPrompt,
-        cache_control: { type: "ephemeral" },
-      },
-    ],
-  });
+  //    Skipped entirely when the system prompt is empty (the project's
+  //    pre-baked instructions were removed by the user; sending an empty
+  //    system block is wasteful and some models reject it).
+  if (systemPrompt && systemPrompt.trim().length > 0) {
+    messages.push({
+      role: "system",
+      content: [
+        {
+          type: "text",
+          text: systemPrompt,
+          cache_control: { type: "ephemeral" },
+        },
+      ],
+    });
+  }
 
   // 2. Few-shot examples — skipped when the user is iterating on existing
   //    files (priorFiles takes priority as the "context" for the model) or
@@ -251,13 +256,15 @@ export function buildMessagesForGeneration(
     messages.push({ role: h.role, content: h.content });
   }
 
-  // 5. Current user prompt. Prepend a `<complexity>` block when the
-  //    pre-generation analyzer has produced one — the system prompt is
-  //    explicitly told to read it and size the output accordingly.
-  const userBlocks: string[] = [];
-  if (complexity) userBlocks.push(buildComplexityHeader(complexity));
-  userBlocks.push(currentUserPrompt);
-  messages.push({ role: "user", content: userBlocks.join("\n\n") });
+  // 5. Current user prompt. The legacy `<complexity>` block is no
+  //    longer prepended — the new SYSTEM_PROMPT is single-HTML-file mode
+  //    regardless of complexity, so injecting "use react-ts" instructions
+  //    would only contradict it. The `complexity` argument is still
+  //    accepted for backwards-compatibility with /api/generate's caller
+  //    plumbing but is intentionally ignored when building the user
+  //    message.
+  void complexity;
+  messages.push({ role: "user", content: currentUserPrompt });
 
   if (process.env.NODE_ENV !== "production") {
     const totalLen = messages.reduce((sum, m) => {
@@ -455,7 +462,9 @@ export async function generateSiteStream(
  *      failure.
  *
  * Strategy: strip fences → brace-balance scan to extract the first complete
- * JSON object → JSON.parse it → validate required keys.
+ * JSON object → JSON.parse it → adapt simple `{title, html}` payloads from
+ * the cinematic SYSTEM_PROMPT into the legacy `{meta, files, preview}` shape
+ * → validate required keys.
  */
 function parseResult(raw: string): GenerateResult {
   const cleaned = stripCodeFences(raw).trim();
@@ -469,6 +478,14 @@ function parseResult(raw: string): GenerateResult {
       `Model returned invalid JSON: ${(e as Error).message}\n\n${candidate.slice(0, 400)}…`,
     );
   }
+
+  // The cinematic SYSTEM_PROMPT instructs the model to return
+  // `{ title, html }` with a single self-contained HTML file. Adapt
+  // that to the internal `GenerateResult` shape before validation so
+  // every downstream consumer (preview assembler, project store, UI)
+  // keeps working unchanged.
+  const adapted = adaptSimpleHtmlPayload(parsed);
+  if (adapted) return adapted;
 
   if (!isGenerateResult(parsed)) {
     // Check if this looks like a truncated response — the model started
@@ -500,6 +517,46 @@ function parseResult(raw: string): GenerateResult {
     );
   }
   return parsed;
+}
+
+/**
+ * Detect the cinematic SYSTEM_PROMPT's `{ title, html }` shape and wrap
+ * it into a {@link GenerateResult}. Returns `null` when the payload
+ * doesn't look like a single-HTML response so the caller can fall
+ * through to the legacy validator.
+ */
+function adaptSimpleHtmlPayload(value: unknown): GenerateResult | null {
+  if (!value || typeof value !== "object") return null;
+  const obj = value as Record<string, unknown>;
+  const html = obj.html;
+  const title = obj.title;
+  if (typeof html !== "string" || html.trim().length === 0) return null;
+  if (typeof title !== "string" || title.trim().length === 0) return null;
+  // Bail out if the model already emitted a full GenerateResult shape;
+  // the legacy validator will handle that path.
+  if (Array.isArray(obj.files)) return null;
+
+  const cleanTitle = title.trim();
+  return {
+    meta: {
+      title: cleanTitle,
+      description: cleanTitle,
+      primaryColor: "#0A0A0A",
+      accentColor: "#F5F5F5",
+      fontPrimary: "Inter",
+      fontSecondary: "Inter",
+      pages: ["Home"],
+    },
+    files: [
+      { path: "index.html", content: html, language: "html" },
+    ],
+    preview: {
+      heroHeadline: cleanTitle,
+      heroSubline: "",
+      colorPalette: ["#0A0A0A", "#F5F5F5"],
+      sections: ["Home"],
+    },
+  };
 }
 
 function isGenerateResult(v: unknown): v is GenerateResult {
