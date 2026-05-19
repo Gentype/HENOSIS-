@@ -1,44 +1,63 @@
 /**
- * Preview assembler — turn a multi-file GenerateResult into a single
- * self-contained HTML document the sandboxed iframe can actually run.
+ * Preview assembler — turn an AI-generated multi-file project into a single
+ * self-contained HTML document the sandboxed iframe can boot reliably.
  *
- * Why this exists:
- *   The iframe's `srcDoc` is an opaque string. Relative paths like
- *   `<link rel="stylesheet" href="styles.css">` or
- *   `<script src="script.js"></script>` cannot resolve because there is no
- *   base URL. So if we just hand the model's `index.html` to the iframe,
- *   the user sees unstyled, scriptless garbage even when the model emitted
- *   perfect multi-file output.
+ * Two modes, dispatched by {@link hasReactEntry}:
  *
- *   For React+TypeScript projects (score ≥ 5) we go further: we ship a
- *   Babel-standalone + esm.sh import-map runtime that transpiles each
- *   `src/**.tsx` file on the fly, registers it as a blob: URL, rewrites
- *   each module's relative imports to point at those blob URLs, and then
- *   dynamic-imports `src/main.tsx`. The whole React tree mounts inside
- *   the sandbox — no server-side build, no separate worker, no SaaS.
+ *   • **HTML mode** (score 1–4) — vanilla HTML/CSS/JS sites. We inline
+ *     every `<link rel="stylesheet" href="local.css">` and
+ *     `<script src="local.js"></script>` reference, inject Tailwind CDN
+ *     so the AI can use Tailwind classes if it wants, inject `<base
+ *     target="_self">` so links don't escape the iframe, and append our
+ *     navigation interceptor at the end of `<body>`.
  *
- * Public API:
- *   - assemblePreview(result)            → string (HTML doc)
- *   - hasReactEntry(files)               → boolean
+ *   • **React mode** (score 5+) — full React + TypeScript projects.
+ *     We discard whatever index.html / src/main.tsx the AI emitted and
+ *     mount our own hardened shell:
+ *       - Tailwind v3 via the official Play CDN
+ *       - Google Fonts CDN if the AI references Fraunces / Syne / etc.
+ *       - Babel-standalone with a 4-way CDN fallback chain
+ *       - An esm.sh importmap for `react`, `react-dom`, `react/jsx-runtime`
+ *       - A synthetic `src/__henosis_main.tsx` that wraps the AI's `<App />`
+ *         in an ErrorBoundary, fades out the loading overlay on first
+ *         commit, and routes render errors to a styled overlay.
+ *       - The runtime loader (Babel transpile → blob URL topo sort →
+ *         dynamic import) shipped from {@link RUNTIME_LOADER_JS}.
  *
- * Notes:
- *   - We support both `.tsx`/`.ts` and `.jsx`/`.js` source trees.
- *   - We never fetch user code over the network — everything is inlined
- *     into the iframe's HTML, so the sandbox attribute can keep
- *     `allow-same-origin` off without breaking imports.
- *   - The runtime intentionally swallows compile errors and renders them
- *     as a red <pre> inside the iframe so the user can debug.
+ * What this rewrite fixes versus the previous version:
+ *
+ *   1. The React-mode iframe never had the navigation interceptor — that's
+ *      why clicking a link inside a generated React site refreshed the
+ *      Henosis page. Both modes now ship the interceptor.
+ *   2. Babel-standalone failures used to leave the iframe blank. Now we
+ *      poll for `window.Babel` for up to 10s and surface a styled error
+ *      overlay with a "check your network" message.
+ *   3. Per-file transpile errors no longer get swallowed into a console
+ *      log — they bubble up to the overlay (and if the entry is the
+ *      broken file, we don't even bother trying to import it).
+ *   4. Loading state — the iframe shows a sage spinner and "Booting
+ *      preview…" label until the React tree commits, replacing the
+ *      "site flickered black for 8 seconds" UX.
+ *   5. Tailwind v3 is always available — the AI can mix Tailwind utility
+ *      classes with its own CSS without us touching the system prompt.
  */
 import type { GenerateResult, GenerateResultFile } from "./types";
+import { NAV_INTERCEPTOR_JS } from "./scaffold/nav-interceptor";
+import {
+  ERROR_OVERLAY_HTML,
+  LOADING_OVERLAY_HTML,
+  OVERLAY_CSS,
+  RUNTIME_LOADER_JS,
+  buildSyntheticMain,
+} from "./scaffold/react-runtime";
 
+// Versions are pinned so a regression in upstream doesn't quietly break
+// existing previews. Bump deliberately when verifying a new release.
 const REACT_VERSION = "19.0.0";
 const BABEL_VERSION = "7.25.6";
+const TAILWIND_CDN = "https://cdn.tailwindcss.com";
 
-/**
- * Map a list of generated files into the entry-relative form the assembler
- * understands. Strips leading "./" / "/" so lookups don't have to care
- * about prefixes.
- */
+/** Map of normalised path → file content. */
 function indexFiles(files: GenerateResultFile[]): Map<string, string> {
   const m = new Map<string, string>();
   for (const f of files) {
@@ -48,29 +67,22 @@ function indexFiles(files: GenerateResultFile[]): Map<string, string> {
   return m;
 }
 
-/** True when the result looks like a React project (has src/main.tsx/jsx). */
+/**
+ * Detect whether the result represents a React project. Loose check —
+ * any of the canonical React entry / App file paths is enough.
+ */
 export function hasReactEntry(files: GenerateResultFile[]): boolean {
-  const set = new Set(files.map((f) => f.path.replace(/^\.?\//, "")));
-  return (
-    set.has("src/main.tsx") ||
-    set.has("src/main.jsx") ||
-    set.has("src/main.ts") ||
-    set.has("src/main.js") ||
-    set.has("src/index.tsx") ||
-    set.has("src/index.jsx") ||
-    set.has("src/index.ts") ||
-    set.has("src/index.js") ||
-    set.has("src/App.tsx") ||
-    set.has("src/App.jsx") ||
-    set.has("App.tsx") ||
-    set.has("App.jsx")
-  );
+  for (const f of files) {
+    const path = f.path.replace(/^\.?\//, "");
+    if (/^src\/(main|index|App)\.(tsx?|jsx?)$/.test(path)) return true;
+    if (/^App\.(tsx?|jsx?)$/.test(path)) return true;
+  }
+  return false;
 }
 
 /**
- * Top-level entry — given a result, return the HTML document to feed
- * into the iframe `srcDoc`. Falls back gracefully if `index.html` is
- * missing.
+ * Top-level entry. Returns the HTML document string for the iframe `srcDoc`
+ * (or `null` for an empty result).
  */
 export function assemblePreview(result: GenerateResult | null): string | null {
   if (!result) return null;
@@ -82,28 +94,25 @@ export function assemblePreview(result: GenerateResult | null): string | null {
   return assembleHtmlPreview(result);
 }
 
-// ---------------------------------------------------------------------------
-// Vanilla HTML projects (complexity 1–4)
-// ---------------------------------------------------------------------------
+// ───────────────────────────────────────────────────────────────────────
+// HTML mode (vanilla HTML/CSS/JS — score 1–4)
+// ───────────────────────────────────────────────────────────────────────
 
 /**
- * Inline every `<link rel="stylesheet" href="…">` and `<script src="…">`
- * tag in index.html whose target lives in the file set. Anything we don't
- * recognise (e.g. a Google Fonts URL) is left alone.
+ * Inline every `<link rel="stylesheet" href="local">` and
+ * `<script src="local"></script>` whose target lives in the result's file
+ * set. Add Tailwind CDN, `<base target="_self">`, and the nav interceptor.
  *
- * Also strips comments inside `<style>` and `<script>` tags? No — we
- * preserve the model's output as-is. We only do the inlining substitution.
+ * If the AI didn't emit `index.html` we fall back to a friendly placeholder.
  */
 function assembleHtmlPreview(result: GenerateResult): string {
   const files = indexFiles(result.files);
   const index = files.get("index.html");
-  if (!index) {
-    return assembleFallbackPreview(result);
-  }
+  if (!index) return assembleFallbackPreview(result);
 
   let html = index;
 
-  // Inline <link rel="stylesheet" href="<local>"> tags.
+  // Inline <link rel="stylesheet" href="local"> (rel-first ordering).
   html = html.replace(
     /<link\b[^>]*\brel=["']stylesheet["'][^>]*\bhref=["']([^"']+)["'][^>]*\/?>/gi,
     (match, href: string) => {
@@ -113,8 +122,7 @@ function assembleHtmlPreview(result: GenerateResult): string {
       return `<style data-from="${escapeAttr(href)}">\n${content}\n</style>`;
     },
   );
-
-  // Some authors emit href first, rel second — handle that too.
+  // …and the rel-second ordering.
   html = html.replace(
     /<link\b[^>]*\bhref=["']([^"']+)["'][^>]*\brel=["']stylesheet["'][^>]*\/?>/gi,
     (match, href: string) => {
@@ -125,7 +133,7 @@ function assembleHtmlPreview(result: GenerateResult): string {
     },
   );
 
-  // Inline <script src="<local>"></script> tags (preserve type=module).
+  // Inline <script src="local"></script> (preserves type=module if present).
   html = html.replace(
     /<script\b([^>]*)\bsrc=["']([^"']+)["']([^>]*)>\s*<\/script>/gi,
     (match, before: string, src: string, after: string) => {
@@ -137,16 +145,33 @@ function assembleHtmlPreview(result: GenerateResult): string {
     },
   );
 
+  html = injectIntoHead(html, htmlModeHeadInjects());
+  html = injectBeforeBodyClose(html, htmlModeBodyInjects());
   return html;
 }
 
-/** Drop leading "./" / "/" so file lookups work. */
-function normaliseHref(href: string): string {
-  return href.replace(/^\.?\//, "").split("?")[0].split("#")[0];
+/** Tags injected into <head> for every HTML-mode preview. */
+function htmlModeHeadInjects(): string {
+  return [
+    `<base target="_self" />`,
+    // Tailwind v3 Play CDN — JIT-compiles classes found in the DOM. No-op
+    // for sites that use vanilla CSS. The official URL.
+    `<script src="${TAILWIND_CDN}" data-henosis-tailwind></script>`,
+    // Allow loading the most common Google Fonts the AI uses without
+    // requiring it to add the <link> tag itself.
+    `<link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>`,
+    `<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>`,
+  ].join("\n");
 }
 
-function escapeAttr(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+/** Tags injected before </body> for every HTML-mode preview. */
+function htmlModeBodyInjects(): string {
+  return `<script data-henosis-nav>${NAV_INTERCEPTOR_JS}</script>`;
+}
+
+/** Drop leading "./" / "/" so file lookups work, plus strip query/hash. */
+function normaliseHref(href: string): string {
+  return href.replace(/^\.?\//, "").split("?")[0].split("#")[0];
 }
 
 function assembleFallbackPreview(result: GenerateResult): string {
@@ -156,7 +181,7 @@ function assembleFallbackPreview(result: GenerateResult): string {
 <head>
   <meta charset="utf-8" />
   <title>${title}</title>
-  <style>body{font-family:system-ui;padding:48px;color:#444;background:#fafafa}</style>
+  <style>body{font-family:ui-sans-serif,system-ui;padding:48px;color:#444;background:#fafafa}</style>
 </head>
 <body>
   <h1>${title}</h1>
@@ -166,127 +191,83 @@ function assembleFallbackPreview(result: GenerateResult): string {
 }
 
 function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+function escapeAttr(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
 }
 
-// ---------------------------------------------------------------------------
-// React + TypeScript projects (complexity 5+)
-// ---------------------------------------------------------------------------
+/**
+ * Insert raw HTML right before `</head>`, or fall back to prepending it to
+ * `<body>` if there's no head, or to the document start as a last resort.
+ * Used for both HTML and React modes.
+ */
+function injectIntoHead(html: string, injectHtml: string): string {
+  if (/<\/head>/i.test(html)) {
+    return html.replace(/<\/head>/i, `${injectHtml}\n</head>`);
+  }
+  if (/<body[^>]*>/i.test(html)) {
+    return html.replace(/<body([^>]*)>/i, (_m, attrs) => `<body${attrs}>\n${injectHtml}`);
+  }
+  return `${injectHtml}\n${html}`;
+}
+
+/** Insert raw HTML right before `</body>`, or append at end as a fallback. */
+function injectBeforeBodyClose(html: string, injectHtml: string): string {
+  if (/<\/body>/i.test(html)) {
+    return html.replace(/<\/body>/i, `${injectHtml}\n</body>`);
+  }
+  return `${html}\n${injectHtml}`;
+}
+
+// ───────────────────────────────────────────────────────────────────────
+// React mode (full React + TypeScript — score 5+)
+// ───────────────────────────────────────────────────────────────────────
 
 /**
- * Build the React runtime shell. We embed all source files as a JSON map
- * on `window.__HENOSIS_FILES__`, ship Babel-standalone for in-browser
- * TS/JSX transpilation, and a virtual module loader that:
- *
- *   1. transpiles each source file with the typescript + react-jsx-automatic
- *      Babel presets,
- *   2. resolves `import X from "./foo"` by trying `.tsx`, `.ts`, `.jsx`,
- *      `.js`, `/index.tsx`, etc.,
- *   3. registers each transpiled module as a `blob:` URL,
- *   4. rewrites the import specifiers in each module to point at those
- *      blob URLs (so bare imports like `react` still flow through the
- *      `<script type="importmap">` to esm.sh),
- *   5. dynamic-imports the entry file (`src/main.tsx` preferred).
- *
- * The CSS file (`src/styles.css` or `styles.css`) is inlined into the
- * `<head>` directly — we never round-trip CSS through Babel.
+ * Build the complete React preview HTML by composing our hardened shell
+ * with the user's source files and a synthetic entry that wraps `<App />`
+ * in an ErrorBoundary.
  */
 function assembleReactPreview(result: GenerateResult): string {
   const files = indexFiles(result.files);
   const title = escapeHtml(result.meta?.title ?? "Henosis preview");
 
-  // Inline a top-level stylesheet if present. We accept either "styles.css"
-  // or "src/styles.css" (the model commonly emits both shapes).
+  // Inline any top-level stylesheet the AI shipped. We accept several
+  // common names. CSS files imported from inside a component are
+  // best-effort (the runtime loader noops them).
   const stylesheetKeys = [
     "styles.css",
     "src/styles.css",
     "src/index.css",
     "index.css",
   ];
-  let css = "";
+  let userCss = "";
   for (const k of stylesheetKeys) {
     const c = files.get(k);
-    if (c) {
-      css += `/* === ${k} === */\n${c}\n\n`;
-    }
+    if (c) userCss += `/* === ${k} === */\n${c}\n\n`;
   }
 
-  // Pull every source file into a JSON-friendly map. We only ship things
-  // the loader can use: .tsx, .ts, .jsx, .js, .mjs, .css, .json.
+  // Source map handed to the runtime loader: every TS/JSX/JS/CSS/JSON
+  // file in the project, keyed by path. Anything else (.md, package.json,
+  // tsconfig.json…) is dropped — the loader doesn't need it.
   const sourceMap: Record<string, string> = {};
   for (const [path, content] of files) {
-    if (/\.(tsx?|jsx?|mjs|css|json)$/.test(path)) {
+    if (/\.(tsx?|jsx?|mjs|css|json)$/.test(path) && !path.endsWith("package.json")
+        && !path.endsWith("tsconfig.json")) {
       sourceMap[path] = content;
     }
   }
 
-  // Hand-pick the entry. We prefer the more explicit ones first.
-  const entryCandidates = [
-    "src/main.tsx",
-    "src/main.jsx",
-    "src/main.ts",
-    "src/main.js",
-    "src/index.tsx",
-    "src/index.jsx",
-    "src/index.ts",
-    "src/index.js",
-  ];
-  let entry: string | null = null;
-  for (const e of entryCandidates) {
-    if (files.has(e)) {
-      entry = e;
-      break;
-    }
-  }
+  // Decide what to use as the React entry. We *always* synthesise our own
+  // hardened entry under `src/__henosis_main.tsx` — the AI's main.tsx is
+  // ignored. This guarantees the ErrorBoundary, loading overlay hide, and
+  // error reporting hook are always wired up.
+  const appImport = locateAppImportPath(files);
+  const synthetic = buildSyntheticMain(appImport);
+  sourceMap["src/__henosis_main.tsx"] = synthetic;
+  const entry = "src/__henosis_main.tsx";
 
-  // Synthesise a missing entry when only App.tsx (or root-level App.tsx)
-  // exists. This is the #2 cause of "import error" — model emits a tidy
-  // React tree but skips src/main.tsx because the system prompt was clipped
-  // or it copied a Vite project layout that uses `npm run dev` to mount.
-  if (!entry) {
-    const appCandidates = [
-      "src/App.tsx",
-      "src/App.jsx",
-      "App.tsx",
-      "App.jsx",
-    ];
-    let appPath: string | null = null;
-    for (const a of appCandidates) {
-      if (files.has(a)) {
-        appPath = a;
-        break;
-      }
-    }
-    if (appPath) {
-      // Path the synthetic main.tsx will import. Drop the "src/" prefix and
-      // the extension — the runtime resolver tries .tsx/.jsx/.ts/.js.
-      const importTarget = appPath
-        .replace(/^src\//, "./")
-        .replace(/^(?!\.\/)/, "./")
-        .replace(/\.(tsx|jsx|ts|js)$/, "");
-      const synthetic = [
-        `// Synthesised by Henosis preview-assembler — the model omitted`,
-        `// src/main.tsx, so we generated a default mount that imports App.`,
-        `import React from "react";`,
-        `import { createRoot } from "react-dom/client";`,
-        `import App from "${importTarget}";`,
-        ``,
-        `const rootEl = document.getElementById("root");`,
-        `if (rootEl) createRoot(rootEl).render(React.createElement(App));`,
-        ``,
-      ].join("\n");
-      // If App lives at the root, we still want the entry under src/ so the
-      // import resolver finds it. Use src/main.tsx as the synthesised path.
-      sourceMap["src/main.tsx"] = synthetic;
-      entry = "src/main.tsx";
-    }
-  }
-
-  // Public document head. The importmap is what makes bare `import React
-  // from "react"` work without npm install.
   const importMap = {
     imports: {
       react: `https://esm.sh/react@${REACT_VERSION}`,
@@ -302,218 +283,98 @@ function assembleReactPreview(result: GenerateResult): string {
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <base target="_self" />
   <title>${title}</title>
-  <style id="henosis-base">
-    html, body { margin: 0; padding: 0; }
-    #root { min-height: 100vh; }
-    .henosis-runtime-error {
-      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-      white-space: pre-wrap;
-      padding: 24px;
-      color: #d22;
-      background: #fff5f5;
-      border-top: 1px solid #f5b5b5;
-    }
-  </style>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+
+  <!-- Tailwind v3 via the official Play CDN. JIT scans the rendered DOM
+       and generates utility CSS at runtime. The AI can use Tailwind
+       classes freely; sites with vanilla CSS are unaffected. -->
+  <script src="${TAILWIND_CDN}" data-henosis-tailwind></script>
+
+  <!-- Henosis overlay (loading + error) styles -->
+  <style id="henosis-overlay-css">${OVERLAY_CSS}</style>
+
+  <!-- User stylesheet(s), inlined -->
   <style id="henosis-user-styles">
-${css}
+${userCss}
   </style>
+
   <script type="importmap">
 ${JSON.stringify(importMap, null, 2)}
   </script>
-  <!-- Babel-standalone with a CDN fallback chain. jsDelivr is the primary
-       choice (better uptime than unpkg in our experience), unpkg is the
-       backup. If the first one errors, the inline fallback below swaps
-       in the second URL synchronously so the runtime loader still sees
-       a populated window.Babel. -->
+
+  <!-- Babel-standalone with a 4-CDN fallback chain. Each onerror flips to
+       the next CDN; if all fail the runtime loader's 10s polling times
+       out and the error overlay surfaces a "Babel failed to load" UI. -->
   <script
     src="https://cdn.jsdelivr.net/npm/@babel/standalone@${BABEL_VERSION}/babel.min.js"
-    onerror="(function(){var s=document.createElement('script');s.src='https://unpkg.com/@babel/standalone@${BABEL_VERSION}/babel.min.js';document.head.appendChild(s);})()"
+    onerror="(function(){var s=document.createElement('script');s.src='https://unpkg.com/@babel/standalone@${BABEL_VERSION}/babel.min.js';s.onerror=function(){var s2=document.createElement('script');s2.src='https://esm.sh/@babel/standalone@${BABEL_VERSION}/babel.min.js';s2.onerror=function(){var s3=document.createElement('script');s3.src='https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/${BABEL_VERSION}/babel.min.js';document.head.appendChild(s3);};document.head.appendChild(s2);};document.head.appendChild(s);})()"
   ></script>
 </head>
 <body>
+  ${LOADING_OVERLAY_HTML}
   <div id="root"></div>
-  <script id="henosis-files" type="application/json">${escapeForScript(
-    JSON.stringify(sourceMap),
-  )}</script>
+  ${ERROR_OVERLAY_HTML}
+
+  <script id="henosis-files" type="application/json">${escapeForScript(JSON.stringify(sourceMap))}</script>
   <script>
     window.__HENOSIS_FILES__ = JSON.parse(
       document.getElementById("henosis-files").textContent || "{}"
     );
     window.__HENOSIS_ENTRY__ = ${JSON.stringify(entry)};
   </script>
-  ${RUNTIME_LOADER}
+
+  <script data-henosis-nav>${NAV_INTERCEPTOR_JS}</script>
+  <script type="module">${RUNTIME_LOADER_JS}</script>
 </body>
 </html>`;
 }
 
 /**
- * Escape `</script>` and similar terminators so the JSON payload can be
- * embedded inside a `<script>` tag without the browser closing it early.
+ * Look at the AI's file set and decide what `./App` should resolve to from
+ * inside our synthetic `src/__henosis_main.tsx`. Returns the import
+ * specifier (without an extension) or null when there's literally no App
+ * component to mount.
  */
-function escapeForScript(json: string): string {
-  return json
-    .replace(/<\/script>/gi, "<\\/script>")
-    .replace(/<!--/g, "<\\!--");
+function locateAppImportPath(files: Map<string, string>): string | null {
+  // Preferred: src/App.{tsx,jsx,ts,js} — the canonical Henosis layout.
+  const srcCandidates = ["src/App.tsx", "src/App.jsx", "src/App.ts", "src/App.js"];
+  for (const c of srcCandidates) {
+    if (files.has(c)) return "./App";
+  }
+
+  // Fallback 1: src/index.{tsx,jsx} — Vite's other common convention.
+  const srcIndex = ["src/index.tsx", "src/index.jsx"];
+  for (const c of srcIndex) {
+    if (files.has(c)) return "./index";
+  }
+
+  // Fallback 2: root-level App.{tsx,jsx}. Rare, but the model occasionally
+  // forgets the src/ prefix. The synthetic entry lives at src/, so we need
+  // a relative ".." import.
+  const rootCandidates = ["App.tsx", "App.jsx", "App.ts", "App.js"];
+  for (const c of rootCandidates) {
+    if (files.has(c)) return "../App";
+  }
+
+  // Fallback 3: AI emitted its own src/main.tsx; import it just to get
+  // its top-level effects (the synthetic ErrorBoundary won't wrap, but
+  // at least something runs).
+  const mainCandidates = ["src/main.tsx", "src/main.jsx", "src/main.ts", "src/main.js"];
+  for (const c of mainCandidates) {
+    if (files.has(c)) return "./main";
+  }
+
+  return null;
 }
 
 /**
- * The runtime loader script. Stays as a string so we can keep the
- * assembler purely synchronous and tree-shake-friendly. The matching
- * `window.__HENOSIS_FILES__` / `window.__HENOSIS_ENTRY__` globals are set
- * just above in the assembled document.
+ * Escape `</script>` and `<!--` so a JSON payload can be embedded inside a
+ * `<script>` block without the parser closing it early.
  */
-const RUNTIME_LOADER = `<script type="module">
-(async () => {
-  const FILES = window.__HENOSIS_FILES__ || {};
-  const ENTRY = window.__HENOSIS_ENTRY__;
-  const root = document.getElementById("root");
-
-  function showError(title, detail) {
-    const el = document.createElement("pre");
-    el.className = "henosis-runtime-error";
-    el.textContent = title + (detail ? "\\n\\n" + detail : "");
-    document.body.appendChild(el);
-  }
-
-  if (!ENTRY) {
-    showError("No entry file found.",
-      "Expected one of: src/main.tsx, src/main.jsx, src/main.ts, src/main.js");
-    return;
-  }
-  if (typeof window.Babel === "undefined") {
-    showError("Babel runtime failed to load.",
-      "Could not reach unpkg.com to fetch @babel/standalone. Check your network.");
-    return;
-  }
-
-  // Transpile every TS/JSX file once. .js / .mjs files are passed through
-  // unchanged (still through Babel so import-rewriting works on them).
-  const SRC_EXT_RE = /\\.(tsx?|jsx?|mjs)$/;
-  const sources = {};
-  for (const path of Object.keys(FILES)) {
-    if (!SRC_EXT_RE.test(path)) continue;
-    try {
-      sources[path] = window.Babel.transform(FILES[path], {
-        filename: path,
-        presets: [
-          ["typescript", {
-            isTSX: /\\.tsx$/.test(path),
-            allExtensions: true,
-            onlyRemoveTypeImports: true,
-          }],
-          ["react", { runtime: "automatic" }],
-        ],
-        sourceType: "module",
-      }).code;
-    } catch (e) {
-      sources[path] = "console.error(" + JSON.stringify(
-        "[" + path + "] " + (e && e.message ? e.message : String(e))
-      ) + ");";
-    }
-  }
-
-  // Resolve "./foo" / "../foo/bar" relative to a source path, trying
-  // common extensions. Bare specifiers (e.g. "react") return null so the
-  // importmap handles them.
-  function resolveSpec(from, spec) {
-    if (!spec.startsWith(".") && !spec.startsWith("/")) return null;
-    const fromDir = from.includes("/") ? from.slice(0, from.lastIndexOf("/")) : "";
-    let url;
-    try {
-      url = new URL(spec, "file:///" + fromDir + "/");
-    } catch (e) {
-      return null;
-    }
-    const resolved = url.pathname.replace(/^\\/+/, "");
-    const tries = [
-      resolved,
-      resolved + ".tsx", resolved + ".ts",
-      resolved + ".jsx", resolved + ".js",
-      resolved + "/index.tsx", resolved + "/index.ts",
-      resolved + "/index.jsx", resolved + "/index.js",
-    ];
-    for (const t of tries) {
-      if (sources[t]) return t;
-      if (FILES[t] && /\\.(css|json)$/.test(t)) return t;
-    }
-    return null;
-  }
-
-  // Rewrite import specifiers in each transpiled file to point at the
-  // module registry IDs (\${HENOSIS_MODULE:path}). We'll swap those for
-  // real blob URLs in the next pass, once we know each module's URL.
-  const IMPORT_PATTERNS = [
-    // import x from "./y"; import "./y"; import x, { y } from "./z"
-    /(\\bfrom\\s*)(["'])([^"']+)\\2/g,
-    /(\\bimport\\s+)(["'])([^"']+)\\2/g,
-    /(\\bimport\\s*\\(\\s*)(["'])([^"']+)\\2/g,
-  ];
-
-  for (const path of Object.keys(sources)) {
-    let code = sources[path];
-    for (const re of IMPORT_PATTERNS) {
-      code = code.replace(re, function (m, lead, quote, spec) {
-        const target = resolveSpec(path, spec);
-        if (!target) return m;
-        if (/\\.css$/.test(target)) {
-          // Inline-import .css → noop the import (we already inlined the
-          // top-level stylesheet; per-module css-imports are best-effort).
-          return lead + quote + "data:text/javascript;base64,Lyog" + quote;
-        }
-        if (/\\.json$/.test(target)) {
-          const json = FILES[target] || "{}";
-          const dataUrl = "data:application/json;base64," + btoa(unescape(encodeURIComponent(json)));
-          return lead + quote + dataUrl + quote;
-        }
-        return lead + quote + "@@HENOSIS_BLOB[" + target + "]@@" + quote;
-      });
-    }
-    sources[path] = code;
-  }
-
-  // Topological blob creation: visit dependencies before parents so each
-  // module ends up with concrete blob URLs in its import statements. We
-  // memoise to handle diamond imports; circular imports fall back to a
-  // late-binding pre-allocated URL.
-  const urls = {};
-  const visiting = new Set();
-
-  function getBlobUrl(path) {
-    if (urls[path]) return urls[path];
-    if (visiting.has(path)) {
-      // Circular: pre-create a blob with the raw code; cycles in React are rare.
-      const placeholder = sources[path].replace(/@@HENOSIS_BLOB\\[([^\\]]+)\\]@@/g, function (m, p) {
-        return urls[p] || ("data:text/javascript;base64," + btoa("export {};"));
-      });
-      urls[path] = URL.createObjectURL(new Blob([placeholder], { type: "text/javascript" }));
-      return urls[path];
-    }
-    visiting.add(path);
-    let code = sources[path];
-    // Materialize this module's dependencies first so their URLs exist.
-    const deps = new Set();
-    code.replace(/@@HENOSIS_BLOB\\[([^\\]]+)\\]@@/g, function (m, p) {
-      deps.add(p);
-      return m;
-    });
-    for (const d of deps) {
-      if (!urls[d] && sources[d]) getBlobUrl(d);
-    }
-    code = code.replace(/@@HENOSIS_BLOB\\[([^\\]]+)\\]@@/g, function (m, p) {
-      return urls[p] || ("data:text/javascript;base64," + btoa("export {};"));
-    });
-    urls[path] = URL.createObjectURL(new Blob([code], { type: "text/javascript" }));
-    visiting.delete(path);
-    return urls[path];
-  }
-
-  try {
-    const entryUrl = getBlobUrl(ENTRY);
-    await import(/* @vite-ignore */ entryUrl);
-  } catch (e) {
-    showError("Runtime error while booting " + ENTRY,
-      e && e.stack ? e.stack : String(e));
-  }
-})();
-</script>`;
+function escapeForScript(json: string): string {
+  return json.replace(/<\/script>/gi, "<\\/script>").replace(/<!--/g, "<\\!--");
+}
