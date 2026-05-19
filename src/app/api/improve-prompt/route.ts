@@ -35,6 +35,33 @@ export async function POST(req: NextRequest) {
 
   const model = body.model || DEFAULT_MODEL;
 
+  // System message is only sent when IMPROVE_PROMPT is non-empty. The
+  // hardcoded prompt was removed by the user; with an empty string we
+  // just forward the user's text and let the model do its thing.
+  const messages: Array<{
+    role: "system" | "user" | "assistant";
+    content:
+      | string
+      | Array<{
+          type: "text";
+          text: string;
+          cache_control?: { type: "ephemeral" };
+        }>;
+  }> = [];
+  if (IMPROVE_PROMPT && IMPROVE_PROMPT.trim().length > 0) {
+    messages.push({
+      role: "system",
+      content: [
+        {
+          type: "text",
+          text: IMPROVE_PROMPT,
+          cache_control: { type: "ephemeral" },
+        },
+      ],
+    });
+  }
+  messages.push({ role: "user", content: prompt });
+
   try {
     const res = await fetch(OPENROUTER_API, {
       method: "POST",
@@ -48,19 +75,7 @@ export async function POST(req: NextRequest) {
         model,
         max_tokens: 400,
         temperature: 0.7,
-        messages: [
-          {
-            role: "system",
-            content: [
-              {
-                type: "text",
-                text: IMPROVE_PROMPT,
-                cache_control: { type: "ephemeral" },
-              },
-            ],
-          },
-          { role: "user", content: prompt },
-        ],
+        messages,
       }),
     });
 
