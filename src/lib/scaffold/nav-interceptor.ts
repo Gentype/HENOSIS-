@@ -110,7 +110,43 @@ export const NAV_INTERCEPTOR_JS = `
     postToParent({ type: "henosis-runtime-error", message: msg });
   });
 
+  // ── Console forwarding ──────────────────────────────────────────────
+  // Wrap console.log / .warn / .error so the parent workshop can show a
+  // collapsible "Iframe console" panel. Without this, when the AI ships
+  // a site that's silently broken, the user has to F12 the iframe to
+  // see what's happening — most users won't, and they walk away thinking
+  // "the AI is shit". Now the workshop surfaces the iframe's own logs.
+  function wrapConsole(level) {
+    var orig = console[level];
+    console[level] = function() {
+      try {
+        var args = Array.prototype.slice.call(arguments);
+        var msg = args.map(function(a) {
+          if (a == null) return String(a);
+          if (typeof a === "string") return a;
+          try { return JSON.stringify(a); } catch (_e) { return String(a); }
+        }).join(" ");
+        // Cap to 1KB so a runaway log doesn't blow the postMessage queue.
+        if (msg.length > 1024) msg = msg.slice(0, 1024) + "…";
+        postToParent({ type: "henosis-console", level: level, message: msg });
+      } catch (_e) {}
+      try { orig.apply(console, arguments); } catch (_e) {}
+    };
+  }
+  wrapConsole("log");
+  wrapConsole("warn");
+  wrapConsole("error");
+  wrapConsole("info");
+
   // Tell the parent we successfully booted (used for the loading spinner).
   postToParent({ type: "henosis-ready" });
+
+  // Heartbeat — once a second post a small ping so the parent knows the
+  // iframe is alive even when there are no logs and no nav events. The
+  // workshop's boot watchdog uses this to detect "iframe loaded but JS
+  // didn't run" (e.g. CSP block, network issue, bad srcDoc).
+  setInterval(function() {
+    postToParent({ type: "henosis-heartbeat", t: Date.now() });
+  }, 1000);
 })();
 `;
