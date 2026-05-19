@@ -82,8 +82,44 @@ export const NAV_INTERCEPTOR_JS = `
       return;
     }
 
-    // Internal link (relative or root-relative). Tell the parent so the
-    // HTML-mode router can swap pages. React-mode parent ignores these.
+    // Internal link (relative or root-relative). Before bothering the
+    // parent, try to resolve the click to a real element on the current
+    // page — many AI builds emit \`<a href="/menu">\` when what they
+    // really wanted was \`<a href="#menu">\` to a <section id="menu">
+    // mounted on the same view. Match strategy:
+    //   1. exact id ("menu" → #menu)
+    //   2. with -section suffix ("menu" → #menu-section)
+    //   3. data-route="menu"
+    //   4. fragment piece of href if multi-segment ("/about/team" → #team)
+    // If any of those hit, scroll smoothly and stop. The user gets the
+    // closest-equivalent in-page jump rather than a dead click.
+    var slug = String(href)
+      .replace(/^\\.?\\//, "")    // strip "./" / "/"
+      .replace(/\\.html$/i, "")   // strip ".html"
+      .replace(/^pages\\//i, "")  // strip "pages/" prefix
+      .replace(/\\/$/g, "")       // strip trailing slash
+      .toLowerCase();
+    var lastSeg = slug.split("/").pop() || slug;
+    var candidates = [slug, lastSeg, slug + "-section", lastSeg + "-section"];
+    var hit = null;
+    for (var i = 0; i < candidates.length; i++) {
+      var c = candidates[i];
+      if (!c) continue;
+      try {
+        var el = document.getElementById(c) ||
+                 document.querySelector('[data-route="' + c + '"]');
+        if (el) { hit = el; break; }
+      } catch (_e) {}
+    }
+    if (hit) {
+      try { hit.scrollIntoView({ behavior: "smooth", block: "start" }); }
+      catch (_e) { try { hit.scrollIntoView(); } catch (_e2) {} }
+      return;
+    }
+
+    // No in-iframe equivalent. Tell the parent so the HTML-mode router
+    // can swap pages, or so the React-mode parent can flash a toast
+    // explaining why the click went nowhere.
     postToParent({ type: "henosis-nav", href: href });
   }, true);
 

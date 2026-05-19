@@ -3,7 +3,6 @@
 import { Fragment, useEffect, useRef } from "react";
 import type { ChatMessage } from "@/lib/types";
 import {
-  Loader2,
   Sparkles,
   User2,
   AlertCircle,
@@ -12,6 +11,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PromptBox } from "@/components/prompt-box";
+import { DotsLoader, OrbitalLoader } from "./loader";
 
 interface ChatPanelProps {
   messages: ChatMessage[];
@@ -64,7 +64,12 @@ function MessageBubble({ message }: { message: ChatMessage }) {
   const isStreaming = message.status === "streaming";
 
   return (
-    <div className={cn("flex gap-2.5", isUser && "flex-row-reverse")}>
+    <div
+      className={cn(
+        "flex gap-2.5 msg-slide-in",
+        isUser && "flex-row-reverse msg-slide-in--user",
+      )}
+    >
       <div
         className={cn(
           "shrink-0 w-7 h-7 rounded-full grid place-items-center text-[11px] font-semibold",
@@ -76,13 +81,10 @@ function MessageBubble({ message }: { message: ChatMessage }) {
       >
         {isUser ? (
           <User2 className="w-3.5 h-3.5" />
+        ) : isStreaming ? (
+          <OrbitalLoader size={14} label="Composing" />
         ) : (
-          <Sparkles
-            className={cn(
-              "w-3.5 h-3.5",
-              isStreaming && "animate-spin",
-            )}
-          />
+          <Sparkles className="w-3.5 h-3.5" />
         )}
       </div>
       <div
@@ -148,12 +150,12 @@ function RichContent({
 
 function ThinkingBubble() {
   return (
-    <div className="flex gap-2.5">
-      <div className="shrink-0 w-7 h-7 rounded-full grid place-items-center bg-accent text-black">
-        <Sparkles className="w-3.5 h-3.5" />
+    <div className="flex gap-2.5 msg-slide-in">
+      <div className="shrink-0 w-7 h-7 rounded-full grid place-items-center bg-accent text-black chat-avatar-pulse">
+        <OrbitalLoader size={16} label="Thinking" />
       </div>
-      <div className="rounded-2xl px-3.5 py-2.5 text-sm bg-elevated border border-border rounded-tl-sm inline-flex items-center gap-2">
-        <Loader2 className="w-3.5 h-3.5 animate-spin text-accent" />
+      <div className="rounded-2xl px-4 py-3 text-sm bg-elevated border border-border rounded-tl-sm inline-flex items-center gap-3">
+        <DotsLoader />
         <span className="text-muted">Designing your site…</span>
       </div>
     </div>

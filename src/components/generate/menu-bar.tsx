@@ -9,7 +9,6 @@ import {
   Code2,
   Download,
   Eye,
-  Loader2,
   Play,
   Share2,
   Globe2,
@@ -18,6 +17,7 @@ import {
   MessageSquareText,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { OrbitalLoader } from "./loader";
 
 interface MenuBarProps {
   projectTitle: string;
@@ -308,7 +308,7 @@ function StatusPill({
   if (status === "analyzing") {
     return (
       <span className="inline-flex items-center gap-1.5 text-[10px] sm:text-xs px-2 py-0.5 rounded-full border border-accent/30 bg-accent/10 text-accent shrink-0">
-        <Loader2 className="w-3 h-3 animate-spin" />
+        <OrbitalLoader size={12} label="Analyzing" />
         <span className="hidden sm:inline">Quality Check</span>
       </span>
     );
@@ -316,7 +316,7 @@ function StatusPill({
   if (status === "generating") {
     return (
       <span className="inline-flex items-center gap-1.5 text-[10px] sm:text-xs px-2 py-0.5 rounded-full border border-accent/30 bg-accent/10 text-accent shrink-0">
-        <Loader2 className="w-3 h-3 animate-spin" />
+        <OrbitalLoader size={12} label="Generating" />
         <span className="hidden sm:inline">Generating</span>
       </span>
     );

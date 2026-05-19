@@ -66,7 +66,7 @@ export function Navbar({ className, variant = "marketing" }: NavbarProps) {
         className={cn(
           "sticky top-0 z-40 transition-all duration-300",
           scrolled || menuOpen
-            ? "backdrop-blur-md bg-black/70 border-b border-border"
+            ? "nav-glass"
             : "bg-transparent border-b border-transparent",
           className,
         )}
@@ -82,7 +82,7 @@ export function Navbar({ className, variant = "marketing" }: NavbarProps) {
                 <Link
                   key={l.href}
                   href={l.href}
-                  className="hover:text-foreground transition-colors"
+                  className="nav-active-indicator hover:text-foreground transition-colors"
                 >
                   {l.label}
                 </Link>

@@ -7,7 +7,6 @@ import {
   ChevronDown,
   ExternalLink,
   Home,
-  Loader2,
   Monitor,
   RefreshCw,
   Smartphone,
@@ -17,6 +16,7 @@ import {
 import { cn } from "@/lib/utils";
 import { assemblePreview, hasReactEntry } from "@/lib/preview-assembler";
 import { LiveBuilder } from "./live-builder";
+import { OrbitalLoader } from "./loader";
 
 interface PreviewPaneProps {
   result: GenerateResult | null;
@@ -91,6 +91,24 @@ export function PreviewPane({ result, generating, partialContent }: PreviewPaneP
   >([]);
   const [showConsole, setShowConsole] = useState(false);
 
+  // Toast queue. Used today to surface "this link doesn't work in preview"
+  // when a React-mode iframe posts henosis-nav for an internal link the
+  // SPA has no route for. Toasts auto-dismiss after a few seconds.
+  const [toasts, setToasts] = useState<
+    Array<{ id: number; tone: "info" | "warn" | "error"; message: string }>
+  >([]);
+  const toastIdRef = useRef(0);
+  const pushToast = useCallback(
+    (tone: "info" | "warn" | "error", message: string) => {
+      const id = ++toastIdRef.current;
+      setToasts((prev) => [...prev.slice(-2), { id, tone, message }]);
+      window.setTimeout(() => {
+        setToasts((prev) => prev.filter((t) => t.id !== id));
+      }, 4500);
+    },
+    [],
+  );
+
   const isReact = useMemo(
     () => (result ? hasReactEntry(result.files) : false),
     [result],
@@ -104,6 +122,7 @@ export function PreviewPane({ result, generating, partialContent }: PreviewPaneP
     setLastHeartbeat(null);
     setBootTimedOut(false);
     setConsoleMessages([]);
+    setToasts([]);
   }, [result]);
 
   // Reset boot watchdog state when the user clicks "Reload" — same logic
@@ -200,11 +219,26 @@ export function PreviewPane({ result, generating, partialContent }: PreviewPaneP
 
       switch (data.type) {
         case "henosis-nav": {
-          // Internal link click. React-mode SPAs handle their own
-          // routing; we only react in HTML mode.
-          if (isReact) return;
           const href = data.href ?? "";
           if (!href) return;
+          if (isReact) {
+            // React-mode SPAs own their own routing. The interceptor
+            // only posts henosis-nav after it FAILED to resolve the
+            // href to an in-iframe element id (see nav-interceptor.ts
+            // local-scroll fallback). That means the AI emitted a dead
+            // link — typically <a href="/menu"> when it should have
+            // been <button onClick={() => setView('menu')}>. Surface
+            // a toast so the user knows the click registered but the
+            // generated SPA has no route for it.
+            const display = href.length > 32 ? href.slice(0, 31) + "…" : href;
+            pushToast(
+              "warn",
+              "Dead link in preview: " +
+                display +
+                " — the AI used <a href> for SPA navigation. Use the Code tab to inspect.",
+            );
+            return;
+          }
           const { cleanRoute } = resolveHref(href);
           setRoute(cleanRoute);
           return;
@@ -278,7 +312,7 @@ export function PreviewPane({ result, generating, partialContent }: PreviewPaneP
     }
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [resolveHref, isReact]);
+  }, [resolveHref, isReact, pushToast]);
 
   // ─── Cleanup blob URLs on unmount ─────────────────────────────────
   useEffect(() => {
@@ -323,9 +357,19 @@ export function PreviewPane({ result, generating, partialContent }: PreviewPaneP
 
   return (
     <div className="h-full flex flex-col">
-      <div className="h-9 px-3 border-b border-border flex items-center justify-between text-xs gap-3">
+      <div className="relative h-9 px-3 border-b border-border flex items-center justify-between text-xs gap-3">
+        {/* Animated gradient line under the chrome bar — sweeps while
+            generation is in flight (Chrome DevTools network-bar style). */}
+        {generating && (
+          <span aria-hidden className="chrome-line absolute -bottom-px" />
+        )}
         <div className="flex items-center gap-2 text-muted min-w-0">
-          <span className="inline-flex items-center gap-1.5">
+          <span
+            className={cn(
+              "inline-flex items-center gap-1.5",
+              generating && "tl-pulse",
+            )}
+          >
             <span className="w-2 h-2 rounded-full bg-red-400/70" />
             <span className="w-2 h-2 rounded-full bg-amber-400/70" />
             <span className="w-2 h-2 rounded-full bg-accent" />
@@ -464,6 +508,16 @@ export function PreviewPane({ result, generating, partialContent }: PreviewPaneP
             onClear={() => setConsoleMessages([])}
           />
         )}
+
+        {/* Toast stack — top-right of the preview area. Used to surface
+            "this link doesn't work in preview" when the React-mode iframe
+            posts henosis-nav for a dead link. Auto-dismisses on its own. */}
+        {toasts.length > 0 && (
+          <ToastStack
+            toasts={toasts}
+            onDismiss={(id) => setToasts((prev) => prev.filter((t) => t.id !== id))}
+          />
+        )}
       </div>
     </div>
   );
@@ -518,8 +572,8 @@ function GeneratingState({
   return (
     <div className="w-full h-full grid place-items-center p-10">
       <div className="max-w-md text-center">
-        <div className="mx-auto w-12 h-12 rounded-2xl bg-accent/10 border border-accent/30 grid place-items-center">
-          <Loader2 className="w-5 h-5 text-accent" />
+        <div className="mx-auto w-14 h-14 rounded-2xl bg-accent/10 border border-accent/30 grid place-items-center">
+          <OrbitalLoader size={28} label="Idle" />
         </div>
         <h3 className="mt-6 text-xl font-semibold tracking-tight text-foreground">
           Ready when you are
@@ -696,6 +750,50 @@ function ConsolePanel({
 
 function escapeAttr(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+}
+
+/**
+ * Toast stack — top-right of the preview area. Auto-stacking, auto-dismiss
+ * is handled by the parent (it removes ids after a timeout); this is just
+ * the presentation layer with slide-in + fade-out animations driven by
+ * tailwind transitions on a key per-toast.
+ */
+function ToastStack({
+  toasts,
+  onDismiss,
+}: {
+  toasts: Array<{ id: number; tone: "info" | "warn" | "error"; message: string }>;
+  onDismiss: (id: number) => void;
+}) {
+  return (
+    <div className="absolute top-3 right-3 z-30 flex flex-col gap-2 pointer-events-none max-w-sm">
+      {toasts.map((t) => (
+        <div
+          key={t.id}
+          className={cn(
+            "preview-toast pointer-events-auto rounded-xl border backdrop-blur-md shadow-2xl shadow-black/60 px-3.5 py-2.5 flex items-start gap-2.5",
+            t.tone === "error" && "bg-red-500/15 border-red-500/40 text-red-100",
+            t.tone === "warn" && "bg-amber-500/15 border-amber-500/40 text-amber-100",
+            t.tone === "info" && "bg-accent/15 border-accent/40 text-accent",
+          )}
+          role="alert"
+        >
+          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 opacity-90" />
+          <div className="text-[12px] leading-snug flex-1 break-words">
+            {t.message}
+          </div>
+          <button
+            type="button"
+            onClick={() => onDismiss(t.id)}
+            aria-label="Dismiss"
+            className="opacity-60 hover:opacity-100 transition-opacity text-[11px] font-mono shrink-0 -mt-0.5"
+          >
+            ×
+          </button>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 /** Render a styled 404 page when the iframe navigates somewhere we can't resolve. */

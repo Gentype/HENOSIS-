@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Gauge, Loader2, Sparkles, Layers, FileCode2 } from "lucide-react";
+import { Gauge, Sparkles, Layers, FileCode2 } from "lucide-react";
 import type { ComplexityAnalysis } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { ProgressRing } from "./loader";
 
 interface QualityCheckOverlayProps {
   visible: boolean;
@@ -86,33 +87,33 @@ export function QualityCheckOverlay({
 
         {/* Score gauge */}
         <div className="mt-6 flex items-center gap-5">
-          <div
-            className={cn(
-              "relative grid place-items-center w-24 h-24 rounded-full border border-accent/30 bg-elevated/60",
-              phase === "analyzing" && "qc-pulse",
-            )}
+          <ProgressRing
+            size={104}
+            strokeWidth={5}
+            progress={
+              resolvedScore != null
+                ? Math.max(0.1, resolvedScore / 10)
+                : undefined
+            }
           >
             <div className="text-center leading-none">
               <span
                 className={cn(
-                  "block font-mono font-semibold text-foreground",
-                  "text-3xl tabular-nums",
+                  "block font-mono font-semibold text-foreground tabular-nums",
+                  "text-3xl",
                 )}
               >
                 {resolvedScore != null
                   ? resolvedScore
                   : Math.max(2, Math.min(9, 3 + tick))}
               </span>
-              <span className="text-[10px] uppercase tracking-widest text-subtle">
-                /10
+              <span className="text-[10px] uppercase tracking-widest text-subtle mt-0.5 inline-block">
+                {resolvedScore != null
+                  ? `${resolvedScore * 10}%`
+                  : "/10"}
               </span>
             </div>
-            {phase === "analyzing" && (
-              <div className="absolute -bottom-1 -right-1">
-                <Loader2 className="w-4 h-4 animate-spin text-accent" />
-              </div>
-            )}
-          </div>
+          </ProgressRing>
 
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 text-foreground font-medium">

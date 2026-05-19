@@ -590,25 +590,35 @@ export function App(): JSX.Element {
 
 const BLOOM_NAV_TSX = `import React, { useState } from "react";
 
+const SECTIONS: ReadonlyArray<{ href: string; label: string }> = [
+  { href: "#work",     label: "Work"     },
+  { href: "#services", label: "Services" },
+  { href: "#about",    label: "About"    },
+];
+
 export function Nav(): JSX.Element {
   const [open, setOpen] = useState(false);
   return (
     <header className="nav">
-      <a className="logo" href="#">Bloom</a>
+      <a className="logo" href="#top">Bloom</a>
       <nav className={open ? "nav-links open" : "nav-links"}>
-        <a href="#work" onClick={() => setOpen(false)}>Work</a>
-        <a href="#services" onClick={() => setOpen(false)}>Services</a>
-        <a href="#process" onClick={() => setOpen(false)}>Process</a>
+        {SECTIONS.map((s) => (
+          <a key={s.href} href={s.href} onClick={() => setOpen(false)}>
+            {s.label}
+          </a>
+        ))}
         <a className="btn-primary" href="#contact" onClick={() => setOpen(false)}>
           Start a project
         </a>
       </nav>
       <button
+        type="button"
         className="nav-burger"
-        aria-label="Open menu"
+        aria-label={open ? "Close menu" : "Open menu"}
+        aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
       >
-        ≡
+        {open ? "×" : "≡"}
       </button>
     </header>
   );
@@ -619,7 +629,7 @@ const BLOOM_HERO_TSX = `import React from "react";
 
 export function Hero(): JSX.Element {
   return (
-    <section className="hero">
+    <section id="top" className="hero">
       <p className="eyebrow reveal-up">Independent Studio · Berlin</p>
       <h1 className="hero-h1 reveal-up delay-1">
         We design brands<br />
@@ -709,7 +719,7 @@ const BLOOM_FOOTER_TSX = `import React from "react";
 
 export function Footer(): JSX.Element {
   return (
-    <footer>
+    <footer id="contact">
       <p>© 2025 Bloom Studio · Auguststrasse 64, Berlin · hello@bloom.studio</p>
     </footer>
   );
@@ -944,7 +954,50 @@ body {
 }
 .topbar-nav { display: flex; gap: 12px; align-items: center; }
 .topbar-nav a, .topbar-nav button { color: var(--color-text-muted); text-decoration: none; font-size: 14px; background: transparent; border: 0; font: inherit; cursor: pointer; }
+.topbar-link { padding: 6px 10px; border-radius: 8px; transition: background .15s ease, color .15s ease; }
+.topbar-link:hover { background: var(--color-surface); color: var(--color-text); }
+.topbar-link.active { color: var(--color-text); }
 .btn-pill { background: var(--color-accent); color: #fff; padding: 8px 16px; border-radius: 999px; }
+
+.topbar-burger {
+  display: none;
+  padding: 8px;
+  border-radius: 8px;
+  color: var(--color-text);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  transition: background .15s ease;
+}
+.topbar-burger:hover { background: var(--color-surface); }
+
+.topbar-mobile {
+  position: sticky;
+  top: 64px;
+  z-index: 9;
+  display: none;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 16px 12px;
+  background: rgba(15,15,15,0.96);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--color-border);
+}
+.topbar-mobile.open { display: flex; }
+.topbar-mobile-item {
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  background: transparent;
+  border: 0;
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background .15s ease, color .15s ease;
+}
+.topbar-mobile-item:hover { background: var(--color-surface); color: var(--color-text); }
+.topbar-mobile-item.active { background: var(--color-surface); color: var(--color-text); }
 
 .app-shell {
   display: grid;
@@ -1021,6 +1074,8 @@ footer { padding: 32px; color: var(--color-text-muted); font-size: 13px; border-
   .sidebar { display: none; }
   .topbar { grid-template-columns: 1fr auto; }
   .search { grid-column: 1 / -1; }
+  .topbar-link, .btn-pill { display: none; }
+  .topbar-burger { display: inline-flex; align-items: center; justify-content: center; }
 }
 `;
 
@@ -1171,7 +1226,12 @@ export function App(): JSX.Element {
 
   return (
     <>
-      <TopBar query={query} onQueryChange={setQuery} />
+      <TopBar
+        view={view}
+        onSetView={setView}
+        query={query}
+        onQueryChange={setQuery}
+      />
       <main className="app-shell">
         <Sidebar active={view} onSelect={setView} />
         <VideoGrid videos={filtered} />
@@ -1184,31 +1244,104 @@ export function App(): JSX.Element {
 }
 `;
 
-const STREAM_TOPBAR_TSX = `import React from "react";
+const STREAM_TOPBAR_TSX = `import React, { useState } from "react";
+import type { ViewKey } from "../types";
 
 interface TopBarProps {
+  view: ViewKey;
+  onSetView: (next: ViewKey) => void;
   query: string;
   onQueryChange: (next: string) => void;
 }
 
-export function TopBar({ query, onQueryChange }: TopBarProps): JSX.Element {
+const NAV_ITEMS: ReadonlyArray<{ key: ViewKey; label: string }> = [
+  { key: "trending", label: "Trending" },
+  { key: "library", label: "Library" },
+  { key: "subscriptions", label: "Subscriptions" },
+];
+
+export function TopBar({
+  view,
+  onSetView,
+  query,
+  onQueryChange,
+}: TopBarProps): JSX.Element {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const handleNav = (next: ViewKey) => {
+    onSetView(next);
+    setMenuOpen(false);
+  };
   return (
-    <header className="topbar">
-      <a className="logo" href="#">Stream</a>
-      <div className="search">
-        <input
-          type="search"
-          placeholder="Search creators, topics, or channels"
-          value={query}
-          onChange={(e) => onQueryChange(e.target.value)}
-        />
+    <>
+      <header className="topbar">
+        {/* Logo — a button, never <a href="#"> */}
+        <button
+          type="button"
+          className="logo"
+          onClick={() => handleNav("home")}
+          aria-label="Stream home"
+        >
+          Stream
+        </button>
+        <div className="search">
+          <input
+            type="search"
+            placeholder="Search creators, topics, or channels"
+            value={query}
+            onChange={(e) => onQueryChange(e.target.value)}
+          />
+        </div>
+        <nav className="topbar-nav">
+          {NAV_ITEMS.map((item) => (
+            <button
+              key={item.key}
+              type="button"
+              className={item.key === view ? "topbar-link active" : "topbar-link"}
+              onClick={() => handleNav(item.key)}
+            >
+              {item.label}
+            </button>
+          ))}
+          <button type="button" className="btn-pill">Upload</button>
+          <button
+            type="button"
+            className="topbar-burger"
+            aria-label={menuOpen ? "Close menu" : "Open menu"}
+            aria-expanded={menuOpen}
+            onClick={() => setMenuOpen((o) => !o)}
+          >
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              {menuOpen
+                ? <path d="M18 6L6 18M6 6l12 12" />
+                : <path d="M4 6h16M4 12h16M4 18h16" />}
+            </svg>
+          </button>
+        </nav>
+      </header>
+      <div
+        className={menuOpen ? "topbar-mobile open" : "topbar-mobile"}
+        role="menu"
+        aria-hidden={!menuOpen}
+      >
+        <button
+          type="button"
+          className={view === "home" ? "topbar-mobile-item active" : "topbar-mobile-item"}
+          onClick={() => handleNav("home")}
+        >
+          Home
+        </button>
+        {NAV_ITEMS.map((item) => (
+          <button
+            key={item.key}
+            type="button"
+            className={item.key === view ? "topbar-mobile-item active" : "topbar-mobile-item"}
+            onClick={() => handleNav(item.key)}
+          >
+            {item.label}
+          </button>
+        ))}
       </div>
-      <nav className="topbar-nav">
-        <a href="#trending">Trending</a>
-        <a href="#library">Library</a>
-        <button type="button" className="btn-pill">Upload</button>
-      </nav>
-    </header>
+    </>
   );
 }
 `;
@@ -1245,7 +1378,14 @@ export function Sidebar({ active, onSelect }: SidebarProps): JSX.Element {
       <hr />
       <p className="side-label">Subscriptions</p>
       {SUBSCRIPTIONS.map((channel) => (
-        <a key={channel.id} className="side-item" href="#">{channel.name}</a>
+        <button
+          key={channel.id}
+          type="button"
+          className="side-item"
+          onClick={() => onSelect("subscriptions")}
+        >
+          {channel.name}
+        </button>
       ))}
     </aside>
   );
@@ -1381,8 +1521,9 @@ src/lib/format.ts             # formatViews helper
 const STREAM_RESULT = {
   plan: [
     "Dark UI shell with red accent (#FF0033) — YouTube-like signal color",
-    "Sticky topbar with logo, search input, Upload CTA",
-    "Sidebar with Home / Trending / Library / Subscriptions buttons",
+    "Sticky topbar with logo button, search input, view-switching nav buttons",
+    "Mobile burger menu opens a dropdown with Home / Trending / Library / Subscriptions",
+    "Sidebar with Home / Trending / Library / Subscriptions buttons (no <a> for nav)",
     "Responsive video grid with 16:9 thumbs and hover lift",
     "Typed mock catalogue (Video[]) filtered by view + search",
     "Subscriptions panel sourced from a typed Channel[] array",

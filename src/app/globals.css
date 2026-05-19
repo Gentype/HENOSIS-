@@ -1405,3 +1405,516 @@ a,
     animation: none !important;
   }
 }
+
+
+
+/* ───────────────────────────────────────────────────────────────
+   Generate-page polish animations.
+
+   Bouncing dots — used by the chat "thinking" bubble. 3 dots that
+   bounce in stagger to feel like the AI is composing a reply.
+   Orbital spinner — replaces Loader2 in places where the progress
+   needs to feel premium (Vercel-style).
+   Progress ring — used by the Quality Check overlay; SVG-driven so
+   the percentage flips with the score.
+   Slide-in / toast / chat-message-in — message + toast entrances.
+   Traffic-light pulse — preview-pane chrome dots pulse during gen.
+   Chrome gradient line — soft accent line under chrome bar that
+   sweeps left-to-right while the AI is writing.
+   ─────────────────────────────────────────────────────────────── */
+
+/* ── Bouncing dots ─────────────────────────────────────────────── */
+@keyframes dot-bounce {
+  0%, 60%, 100% {
+    transform: translateY(0);
+    opacity: 0.45;
+  }
+  30% {
+    transform: translateY(-6px);
+    opacity: 1;
+  }
+}
+.dots-bouncing {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.dots-bouncing > span {
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: var(--accent);
+  display: inline-block;
+  animation: dot-bounce 1.05s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+.dots-bouncing > span:nth-child(2) { animation-delay: 0.14s; }
+.dots-bouncing > span:nth-child(3) { animation-delay: 0.28s; }
+
+/* ── Orbital spinner ───────────────────────────────────────────── */
+@keyframes orbit-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+@keyframes orbit-counter {
+  from { transform: rotate(360deg); }
+  to   { transform: rotate(0deg); }
+}
+.orbit-loader {
+  position: relative;
+  display: inline-block;
+}
+.orbit-loader__core {
+  width: 38%;
+  height: 38%;
+  border-radius: 9999px;
+  background: var(--accent);
+  position: absolute;
+  top: 31%;
+  left: 31%;
+  box-shadow: 0 0 12px rgba(184, 227, 201, 0.6);
+}
+.orbit-loader__ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  border: 1.5px solid transparent;
+  animation: orbit-spin 1.6s linear infinite;
+}
+.orbit-loader__ring--1 {
+  border-top-color: var(--accent);
+  border-right-color: var(--accent);
+  opacity: 0.95;
+}
+.orbit-loader__ring--2 {
+  inset: 16%;
+  border-bottom-color: var(--accent-strong);
+  border-left-color: var(--accent-strong);
+  opacity: 0.7;
+  animation: orbit-counter 1.2s linear infinite;
+}
+.orbit-loader__ring--3 {
+  inset: 32%;
+  border-top-color: rgba(255, 255, 255, 0.6);
+  animation-duration: 0.9s;
+  opacity: 0.5;
+}
+
+/* ── Progress ring (Quality Check) ─────────────────────────────── */
+@keyframes ring-trace {
+  from { stroke-dashoffset: var(--ring-circ, 220); }
+  to   { stroke-dashoffset: 0; }
+}
+.qc-ring-bg {
+  stroke: rgba(255, 255, 255, 0.08);
+  fill: none;
+}
+.qc-ring-fg {
+  stroke: var(--accent);
+  fill: none;
+  stroke-linecap: round;
+  filter: drop-shadow(0 0 6px rgba(184, 227, 201, 0.55));
+  transition: stroke-dashoffset 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.qc-ring-fg--indeterminate {
+  animation: ring-spin-indeterminate 1.6s ease-in-out infinite;
+  transform-origin: center;
+}
+@keyframes ring-spin-indeterminate {
+  0%   { stroke-dashoffset: var(--ring-circ, 220); transform: rotate(-90deg); }
+  50%  { stroke-dashoffset: calc(var(--ring-circ, 220) * 0.25); }
+  100% { stroke-dashoffset: var(--ring-circ, 220); transform: rotate(270deg); }
+}
+
+/* ── Chat message slide-in ─────────────────────────────────────── */
+@keyframes msg-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.msg-slide-in {
+  animation: msg-slide-in 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.msg-slide-in--user {
+  animation-name: msg-slide-in-right;
+}
+@keyframes msg-slide-in-right {
+  from {
+    opacity: 0;
+    transform: translateY(8px) translateX(6px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) translateX(0) scale(1);
+  }
+}
+
+/* ── Toast slide-in ────────────────────────────────────────────── */
+@keyframes toast-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(16px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+.preview-toast {
+  animation: toast-slide-in 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+/* ── Traffic-lights pulse during generation ────────────────────── */
+@keyframes tl-pulse {
+  0%, 100% { opacity: 0.55; transform: scale(1); }
+  50%      { opacity: 1;    transform: scale(1.18); }
+}
+.tl-pulse > span {
+  animation: tl-pulse 1.6s ease-in-out infinite;
+  transform-origin: center;
+  will-change: opacity, transform;
+}
+.tl-pulse > span:nth-child(2) { animation-delay: 0.18s; }
+.tl-pulse > span:nth-child(3) { animation-delay: 0.36s; }
+
+/* ── Chrome gradient line (Chrome DevTools style) ──────────────── */
+.chrome-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(184, 227, 201, 0) 30%,
+    var(--accent) 50%,
+    rgba(184, 227, 201, 0) 70%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  opacity: 0.7;
+  pointer-events: none;
+  animation: chrome-sweep 2.4s ease-in-out infinite;
+}
+@keyframes chrome-sweep {
+  0%   { background-position: -100% 50%; opacity: 0.4; }
+  50%  { opacity: 0.85; }
+  100% { background-position: 200% 50%; opacity: 0.4; }
+}
+
+/* ── LiveBuilder shimmer on the path chip + pulsing ring ───────── */
+@keyframes lb-path-shimmer {
+  0%   { background-position: -150% 50%; }
+  100% { background-position: 250% 50%; }
+}
+.lb-path-shimmer {
+  background: linear-gradient(
+    100deg,
+    rgba(184, 227, 201, 0.0) 0%,
+    rgba(184, 227, 201, 0.0) 35%,
+    rgba(184, 227, 201, 0.55) 50%,
+    rgba(184, 227, 201, 0.0) 65%,
+    rgba(184, 227, 201, 0.0) 100%
+  );
+  background-size: 220% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  animation: lb-path-shimmer 2.6s linear infinite;
+}
+@keyframes lb-current-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(184, 227, 201, 0.4);
+    border-color: rgba(184, 227, 201, 0.5);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(184, 227, 201, 0);
+    border-color: rgba(184, 227, 201, 0.85);
+  }
+}
+.lb-current-pulse {
+  animation: lb-current-pulse 1.6s ease-in-out infinite;
+}
+
+/* ── Disabled elements that need a final dash of polish ─────────
+   The standard `disabled` tap on the follow-up input fades the box
+   but leaves the placeholder readable. Combine with a pulse ring so
+   the user knows "wait, generation in flight". */
+@keyframes followup-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(184, 227, 201, 0.0) inset; }
+  50%      { box-shadow: 0 0 0 1px rgba(184, 227, 201, 0.25) inset; }
+}
+.followup-busy {
+  animation: followup-pulse 2.4s ease-in-out infinite;
+}
+
+
+
+/* ───────────────────────────────────────────────────────────────
+   Homepage redesign — marquee, conic-gradient cards, parallax
+   reveal helpers, footer divider, magnetic CTA glow.
+   ─────────────────────────────────────────────────────────────── */
+
+/* ── Marquee ───────────────────────────────────────────────────── */
+.marquee {
+  --marquee-duration: 38s;
+  --marquee-direction: normal;
+}
+.marquee__track {
+  display: flex;
+  gap: 48px;
+  width: max-content;
+  animation: marquee-scroll var(--marquee-duration) linear infinite;
+  animation-direction: var(--marquee-direction);
+  will-change: transform;
+}
+.marquee:hover .marquee__track,
+.marquee:focus-within .marquee__track {
+  animation-play-state: paused;
+}
+.marquee__item {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  transition: color 0.25s ease;
+  white-space: nowrap;
+}
+.marquee__item::before {
+  content: "·";
+  color: var(--subtle);
+  margin-right: 2px;
+}
+.marquee__item:first-child::before { content: ""; margin: 0; }
+.marquee__item:hover { color: var(--accent); }
+.marquee__mask {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    90deg,
+    var(--background) 0%,
+    transparent 8%,
+    transparent 92%,
+    var(--background) 100%
+  );
+  z-index: 1;
+}
+@keyframes marquee-scroll {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .marquee__track { animation: none; }
+}
+
+/* ── Conic-gradient border on hover (rotating) ─────────────────── */
+.conic-border {
+  position: relative;
+  isolation: isolate;
+}
+.conic-border::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1px;
+  background: conic-gradient(
+    from var(--conic-angle, 0deg),
+    transparent 0deg,
+    transparent 90deg,
+    var(--accent) 130deg,
+    var(--accent-strong) 180deg,
+    var(--accent) 220deg,
+    transparent 280deg,
+    transparent 360deg
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+          mask-composite: exclude;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+  pointer-events: none;
+  z-index: 0;
+  animation: conic-rotate 5s linear infinite;
+}
+.conic-border:hover::before,
+.conic-border:focus-within::before {
+  opacity: 1;
+}
+@property --conic-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+@keyframes conic-rotate {
+  from { --conic-angle: 0deg; }
+  to   { --conic-angle: 360deg; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .conic-border::before { animation: none; }
+}
+
+/* ── IntersectionObserver scroll reveal ───────────────────────── */
+.scroll-reveal {
+  opacity: 0;
+  transform: translateY(28px);
+  transition:
+    opacity 0.7s cubic-bezier(0.2, 0.8, 0.2, 1),
+    transform 0.7s cubic-bezier(0.2, 0.8, 0.2, 1);
+  will-change: opacity, transform;
+}
+.scroll-reveal.in {
+  opacity: 1;
+  transform: translateY(0);
+}
+.scroll-reveal.delay-1 { transition-delay: 0.08s; }
+.scroll-reveal.delay-2 { transition-delay: 0.16s; }
+.scroll-reveal.delay-3 { transition-delay: 0.24s; }
+.scroll-reveal.delay-4 { transition-delay: 0.32s; }
+@media (prefers-reduced-motion: reduce) {
+  .scroll-reveal { opacity: 1; transform: none; transition: none; }
+}
+
+/* ── Parallax helper — element drifts slower/faster than scroll ── */
+.parallax-y { will-change: transform; transform: translate3d(0, var(--parallax, 0px), 0); }
+
+/* ── Section gradient divider — used at the top of the footer ──── */
+.section-divider {
+  position: relative;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(184, 227, 201, 0.2) 18%,
+    var(--accent) 50%,
+    rgba(184, 227, 201, 0.2) 82%,
+    transparent 100%
+  );
+}
+.section-divider::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 8px;
+  height: 8px;
+  border-radius: 9999px;
+  background: var(--accent);
+  box-shadow:
+    0 0 12px var(--accent),
+    0 0 24px rgba(184, 227, 201, 0.45);
+}
+
+/* ── Footer link hover-lift ────────────────────────────────────── */
+.footer-link {
+  position: relative;
+  display: inline-block;
+  transition: color 0.2s ease, transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.footer-link::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: -2px;
+  width: 100%;
+  height: 1px;
+  background: var(--accent);
+  transform: scaleX(0);
+  transform-origin: 0 50%;
+  transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.footer-link:hover {
+  color: var(--accent);
+  transform: translateY(-1px);
+}
+.footer-link:hover::after { transform: scaleX(1); }
+
+/* ── Social icon pulse ─────────────────────────────────────────── */
+@keyframes social-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(184, 227, 201, 0.45); }
+  60%      { box-shadow: 0 0 0 8px rgba(184, 227, 201, 0); }
+}
+.social-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 9999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--foreground);
+  transition: color 0.2s, border-color 0.2s, transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1), background 0.2s;
+}
+.social-icon:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: rgba(184, 227, 201, 0.06);
+  transform: translateY(-2px);
+  animation: social-pulse 1.4s ease-out infinite;
+}
+
+/* ── Stat card glow halo (subtle accent ring on hover) ─────────── */
+.stat-card {
+  position: relative;
+  overflow: hidden;
+}
+.stat-card::before {
+  content: "";
+  position: absolute;
+  inset: -40%;
+  background: radial-gradient(
+    closest-side,
+    rgba(184, 227, 201, 0.18),
+    transparent 70%
+  );
+  opacity: 0;
+  transition: opacity 0.4s ease;
+  pointer-events: none;
+}
+.stat-card:hover::before { opacity: 1; }
+
+/* ── Navbar — improved glass blur on scroll ────────────────────── */
+.nav-glass {
+  background-color: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(18px) saturate(160%);
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 12px 40px -12px rgba(0, 0, 0, 0.5);
+}
+.nav-active-indicator {
+  position: relative;
+}
+.nav-active-indicator::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -4px;
+  width: 4px;
+  height: 4px;
+  border-radius: 9999px;
+  background: var(--accent);
+  transform: translateX(-50%) scale(0);
+  transition: transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+  box-shadow: 0 0 8px var(--accent);
+}
+.nav-active-indicator.is-active::after,
+.nav-active-indicator:hover::after {
+  transform: translateX(-50%) scale(1);
+}

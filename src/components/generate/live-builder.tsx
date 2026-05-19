@@ -48,11 +48,20 @@ export function LiveBuilder({ partial }: LiveBuilderProps) {
         <div className="text-[10px] uppercase tracking-[0.18em] text-subtle">
           Live build · {history.length} file{history.length === 1 ? "" : "s"}
         </div>
-        <div className="mt-2 text-sm font-mono text-foreground truncate">
+        <div
+          className={cn(
+            "mt-2 mx-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg",
+            "border bg-surface/40 backdrop-blur-md font-mono text-sm text-foreground max-w-full",
+            current ? "lb-current-pulse" : "border-border opacity-70",
+          )}
+        >
           {current ? (
             <>
-              <span className="text-accent">›</span> {current}
-              <span className="ml-1 inline-block align-middle w-1.5 h-3.5 bg-accent/70 rounded-sm caret-blink" />
+              <span className="text-accent">›</span>
+              <span className="lb-path-shimmer truncate" title={current}>
+                {current}
+              </span>
+              <span className="ml-0.5 inline-block align-middle w-1 h-3.5 bg-accent/70 rounded-sm caret-blink shrink-0" />
             </>
           ) : (
             <span className="text-muted">Thinking through the layout…</span>

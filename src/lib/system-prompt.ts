@@ -201,7 +201,9 @@ The #1 quality issue users hit is "the AI built pages I can't actually visit". A
 
   5. **Footer site-map links** (if you include them) MUST also resolve.
 
-## React-TS stack rules
+## React-TS stack rules — READ THIS TWICE
+
+⚠️ **THE #1 CAUSE OF REJECTED REACT BUILDS IS \`<a href>\` USED FOR INTERNAL NAVIGATION.** The Henosis preview iframe injects a navigation interceptor that BLOCKS every \`<a>\` click whose href is not a hash anchor (\`#section-id\`) or an absolute URL (\`https://…\`). The click is silently swallowed. The user clicks "Menu" and **nothing happens**. They think your site is broken. They blame Henosis. Build is REJECTED.
 
   1. **Declare a View union in App.tsx** matching meta.pages:
 
@@ -210,23 +212,39 @@ The #1 quality issue users hit is "the AI built pages I can't actually visit". A
 
   2. **Every page in meta.pages MUST appear as a value in the View union.**
 
-  3. **NEVER use \`<a href="/menu">\` for internal nav in React** — the iframe navigation interceptor blocks it. Use buttons:
+  3. **NEVER, EVER use \`<a href="/...">\` or \`<a href="pages/...">\` or \`<a href="...html">\` for internal navigation in React.** The interceptor blocks every one of them. Period. No exceptions. Use buttons:
 
-     ✓ \`<button onClick={() => setView("menu")}>Menu</button>\`
-     ✗ \`<a href="/menu">Menu</a>\`         ← blocked, dead click
-     ✗ \`<a href="pages/menu">Menu</a>\`    ← blocked, dead click
+     ✓ \`<button type="button" onClick={() => setView("menu")}>Menu</button>\`
+     ✓ \`<button type="button" onClick={() => onNav?.("menu")}>Menu</button>\`
+     ✗ \`<a href="/menu">Menu</a>\`              ← blocked, dead click
+     ✗ \`<a href="pages/menu">Menu</a>\`         ← blocked, dead click
+     ✗ \`<a href="menu.html">Menu</a>\`          ← blocked, dead click
+     ✗ \`<a href="#" onClick={...}>Menu</a>\`    ← still wrong, use button
+     ✗ \`<a href="javascript:void(0)">…</a>\`    ← blocked, dead click
 
-  4. **Hash anchors are fine** (\`<a href="#features">\`) ONLY when there's a real element with that id on the same view.
+  4. **The ONLY \`<a>\` tags allowed in a React-TS build are:**
+     - Hash anchors targeting an id that exists on the SAME currently-rendered view: \`<a href="#features">\` when there's a \`<section id="features">\` mounted. The browser smooth-scrolls inside the iframe.
+     - Absolute external URLs: \`<a href="https://twitter.com/…" target="_blank" rel="noreferrer">\`. The interceptor opens these in a new tab via the parent.
+     - \`mailto:\` / \`tel:\` / \`sms:\` URLs.
+     **EVERYTHING ELSE MUST BE A \`<button>\`.** Even your logo. Even sidebar items. Even footer "Home" links. Even the brand wordmark in the topbar.
 
-  5. **Conditionally render** the current view:
+  5. **Logo / brand mark** — also a button, not \`<a href="#">\`:
+
+         <button type="button" onClick={() => onNav?.("home")} className="logo">Brand</button>
+
+  6. **Conditionally render** the current view:
 
          {view === "home" && <Home />}
          {view === "menu" && <Menu />}
          {view === "about" && <About />}
 
-  6. **Pass the current view to Nav** so it can highlight the active link:
+  7. **Pass the current view + setView to Nav** so it can highlight the active link AND switch views:
 
          <Nav view={view} onNav={setView} />
+
+  8. **Burger menu** — must be a real \`useState\` in the Nav component. The mobile menu items also call \`onNav(...)\` and close the menu. Copy the Nav.tsx snippet from CONCRETE IMPLEMENTATIONS verbatim — do NOT write your own from scratch.
+
+  9. **Pre-emit grep**: before you finalize the JSON, mentally scan every \`<a\` in your TSX. If any one has an \`href\` that isn't a hash anchor on the current view OR an absolute URL OR a \`mailto:\`/\`tel:\` URL — convert it to \`<button onClick={...}>\` BEFORE emitting JSON.
 
 ## Pre-emit checklist
 
@@ -368,34 +386,51 @@ When the prompt is automation-flavoured (zapier, workflow, automate, integration
 
 The most common quality regressions ("burger menu doesn't open", "no animations", "hero is just a headline + button") happen because the AI tried to write these from scratch and got it half-right. Don't. The snippets below are ready to use verbatim. Copy them into the appropriate file with minimal edits (rename Brand, swap colors). If your build is missing any of the patterns below for a score >= 5 prompt, the build is REJECTED.
 
-## Mobile burger menu (React-TS stack)
+## Mobile burger menu (React-TS stack) — VIEW-SWITCHING NAV
+
+This is the canonical Nav for any react-ts build with multiple pages. It accepts a \`view\` + \`onNav\` prop pair, switches views via \`<button onClick>\` (NEVER \`<a href>\`), highlights the active link, and includes a working burger menu via \`useState\`. Copy this VERBATIM and only swap \`Brand\` / link list / colour:
 
       // src/components/Nav.tsx
       import React, { useState } from "react";
 
+      type View = "home" | "features" | "pricing" | "about";
+
       interface NavProps {
-        view?: string;
-        onNav?: (v: string) => void;
+        view: View;
+        onNav: (v: View) => void;
       }
+
+      const LINKS: ReadonlyArray<{ id: View; label: string }> = [
+        { id: "home",     label: "Home"     },
+        { id: "features", label: "Features" },
+        { id: "pricing",  label: "Pricing"  },
+        { id: "about",    label: "About"    },
+      ];
 
       export function Nav({ view, onNav }: NavProps): JSX.Element {
         const [open, setOpen] = useState(false);
-        const links = [
-          { id: "features", label: "Features" },
-          { id: "pricing",  label: "Pricing"  },
-          { id: "about",    label: "About"    },
-        ];
+        const handleNav = (next: View) => {
+          onNav(next);
+          setOpen(false);
+        };
         return (
           <>
             <nav className="fixed top-0 inset-x-0 z-40 backdrop-blur-md bg-black/60 border-b border-white/10">
               <div className="max-w-7xl mx-auto h-16 px-6 flex items-center justify-between">
-                <a href="#" className="font-display text-xl tracking-tight">Brand</a>
+                {/* Brand — also a button, NOT <a href="#"> */}
+                <button
+                  type="button"
+                  onClick={() => handleNav("home")}
+                  className="font-display text-xl tracking-tight"
+                >
+                  Brand
+                </button>
                 <ul className="hidden md:flex gap-8 text-sm opacity-90">
-                  {links.map(l => (
+                  {LINKS.map(l => (
                     <li key={l.id}>
                       <button
                         type="button"
-                        onClick={() => onNav?.(l.id)}
+                        onClick={() => handleNav(l.id)}
                         className={\`hover:opacity-100 transition-opacity \${view === l.id ? "opacity-100" : "opacity-70"}\`}
                       >
                         {l.label}
@@ -422,12 +457,12 @@ The most common quality regressions ("burger menu doesn't open", "no animations"
               className={\`md:hidden fixed inset-x-0 top-16 z-30 bg-black/95 backdrop-blur-xl border-b border-white/10 transition-all duration-300 \${open ? "translate-y-0 opacity-100 pointer-events-auto" : "-translate-y-2 opacity-0 pointer-events-none"}\`}
             >
               <ul className="px-6 py-4 flex flex-col gap-4 text-base">
-                {links.map(l => (
+                {LINKS.map(l => (
                   <li key={l.id}>
                     <button
                       type="button"
-                      onClick={() => { onNav?.(l.id); setOpen(false); }}
-                      className="block w-full text-left py-2"
+                      onClick={() => handleNav(l.id)}
+                      className={\`block w-full text-left py-2 \${view === l.id ? "text-[var(--accent)]" : ""}\`}
                     >
                       {l.label}
                     </button>
@@ -438,6 +473,36 @@ The most common quality regressions ("burger menu doesn't open", "no animations"
           </>
         );
       }
+
+In \`src/App.tsx\`:
+
+      import React, { useState } from "react";
+      import { Nav } from "./components/Nav";
+      import { Home } from "./components/Home";
+      import { Features } from "./components/Features";
+      import { Pricing } from "./components/Pricing";
+      import { About } from "./components/About";
+      import { Footer } from "./components/Footer";
+
+      type View = "home" | "features" | "pricing" | "about";
+
+      export default function App(): JSX.Element {
+        const [view, setView] = useState<View>("home");
+        return (
+          <>
+            <Nav view={view} onNav={setView} />
+            <main className="pt-16">
+              {view === "home" && <Home />}
+              {view === "features" && <Features />}
+              {view === "pricing" && <Pricing />}
+              {view === "about" && <About />}
+            </main>
+            <Footer onNav={setView} />
+          </>
+        );
+      }
+
+⚠️ **CRITICAL**: Footer "Home" / "Pricing" / "About" links also use \`<button onClick={() => onNav('page')}>\`, NOT \`<a href>\`. ANY internal link as an \`<a>\` will be DEAD.
 
 ## Mobile burger menu (HTML stack)
 
@@ -961,6 +1026,7 @@ Menu items always include: name, brief description, price, optional dietary tag.
       - score 1–4 (html) → REQUIRED: \`index.html\` + \`styles.css\` + \`script.js\` (>= 3 files). FORBIDDEN: src/*.tsx, package.json, tsconfig.json.
       - score 5–10 (react-ts) → REQUIRED: \`src/App.tsx\` + at least one \`src/components/<X>.tsx\`. FORBIDDEN: \`index.html\`, \`src/main.tsx\`, \`package.json\`, \`tsconfig.json\`.
       Output that mixes script.js with src/main.tsx, or that ships only index.html for a score >= 5 prompt, is REJECTED.
+  13. **REACT NAV CONTRACT — STRICTLY ENFORCED.** For react-ts builds (score >= 5), \`<a href>\` for internal navigation is FORBIDDEN. The nav interceptor blocks every non-hash, non-absolute click — your "Menu" / "About" / "Pricing" links will be DEAD. Use \`<button type="button" onClick={() => setView('page')}>\` for ALL internal navigation, including the brand logo, sidebar items, footer "Home" links, and mobile burger items. The ONLY \`<a>\` tags allowed are: (a) hash anchors \`#section-id\` targeting an id on the CURRENT view, (b) absolute URLs \`https://…\`, (c) \`mailto:\` / \`tel:\` / \`sms:\`. ANY \`<a href="/…">\`, \`<a href="pages/…">\`, \`<a href="…html">\`, or \`<a href="#" onClick={...}>\` for internal nav = REJECTED BUILD. Before emitting JSON, walk every \`<a\` in your TSX and convert anything that isn't (a)/(b)/(c) to \`<button>\`.
 
 # FOLLOW-UP EDITS
 
