@@ -4,28 +4,25 @@ import { useEffect, useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
 
 interface LiveBuilderProps {
-  /** The raw partial JSON streaming back from /api/generate. */
+  /** Сырой стриминговый текст от /api/generate (с <boltAction> тегами). */
   partial: string;
 }
 
 /**
- * Centered "live mode" indicator shown while the AI is writing the site.
+ * Live-индикатор пока модель генерирует сайт.
  *
- * Reads the partial JSON stream and figures out which file is currently
- * being written, then renders a giant language badge (HTML / CSS / TS / JS /
- * JSON / MD / SVG …) in the middle of the preview pane. The badges shift
- * with smooth crossfades + a slow ambient bob so the page never feels
- * static, even when the model spends a few seconds on a single file.
+ * Читает частичный текст с bolt-тегами и извлекает текущий записываемый файл
+ * из <boltAction type="file" filePath="..."> тегов, рисует языковой бейдж.
  */
 export function LiveBuilder({ partial }: LiveBuilderProps) {
-  // Extract every "path":"…" the model has emitted so far. The last one is
-  // the file currently being written.
   const current = useMemo(() => extractCurrentPath(partial), [partial]);
   const [history, setHistory] = useState<string[]>([]);
 
   useEffect(() => {
     if (!current) return;
-    setHistory((prev) => (prev[prev.length - 1] === current ? prev : [...prev, current]));
+    setHistory((prev) =>
+      prev[prev.length - 1] === current ? prev : [...prev, current],
+    );
   }, [current]);
 
   const lang = inferLang(current);
@@ -33,7 +30,7 @@ export function LiveBuilder({ partial }: LiveBuilderProps) {
 
   return (
     <div className="relative w-full max-w-xl mx-auto select-none">
-      {/* ambient rings behind the badge */}
+      {/* Ambient rings */}
       <div className="pointer-events-none absolute inset-0 grid place-items-center">
         <div className="lb-ring lb-ring-1" aria-hidden />
         <div className="lb-ring lb-ring-2" aria-hidden />
@@ -52,7 +49,9 @@ export function LiveBuilder({ partial }: LiveBuilderProps) {
           className={cn(
             "mt-2 mx-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg",
             "border bg-surface/40 backdrop-blur-md font-mono text-sm text-foreground max-w-full",
-            current ? "lb-current-pulse" : "border-border opacity-70",
+            current
+              ? "lb-current-pulse border-accent/40"
+              : "border-border opacity-70",
           )}
         >
           {current ? (
@@ -67,6 +66,7 @@ export function LiveBuilder({ partial }: LiveBuilderProps) {
             <span className="text-muted">Thinking through the layout…</span>
           )}
         </div>
+
         {recent.length > 1 && (
           <div className="mt-4 flex items-center justify-center gap-1.5 flex-wrap">
             {recent.map((p, i) => {
@@ -98,6 +98,8 @@ export function LiveBuilder({ partial }: LiveBuilderProps) {
   );
 }
 
+// ─── Lang definitions ──────────────────────────────────────────────────────
+
 interface Lang {
   id: string;
   label: string;
@@ -109,92 +111,54 @@ interface Lang {
 
 const LANGS: Record<string, Lang> = {
   html: {
-    id: "html",
-    label: "HTML",
-    short: "HTML",
-    color: "#e34f26",
-    dim: "rgba(227, 79, 38, 0.6)",
-    gradient: "linear-gradient(180deg, #f06529 0%, #c93420 100%)",
+    id: "html", label: "HTML", short: "HTML",
+    color: "#e34f26", dim: "rgba(227,79,38,0.6)",
+    gradient: "linear-gradient(180deg,#f06529 0%,#c93420 100%)",
   },
   css: {
-    id: "css",
-    label: "CSS",
-    short: "CSS",
-    color: "#2965f1",
-    dim: "rgba(41, 101, 241, 0.6)",
-    gradient: "linear-gradient(180deg, #5a9bff 0%, #1e4fd4 100%)",
+    id: "css", label: "CSS", short: "CSS",
+    color: "#2965f1", dim: "rgba(41,101,241,0.6)",
+    gradient: "linear-gradient(180deg,#5a9bff 0%,#1e4fd4 100%)",
   },
   ts: {
-    id: "ts",
-    label: "TypeScript",
-    short: "TS",
-    color: "#3178c6",
-    dim: "rgba(49, 120, 198, 0.6)",
-    gradient: "linear-gradient(180deg, #5fa6e6 0%, #1f5da3 100%)",
+    id: "ts", label: "TypeScript", short: "TS",
+    color: "#3178c6", dim: "rgba(49,120,198,0.6)",
+    gradient: "linear-gradient(180deg,#5fa6e6 0%,#1f5da3 100%)",
   },
   tsx: {
-    id: "tsx",
-    label: "TypeScript JSX",
-    short: "TSX",
-    color: "#3178c6",
-    dim: "rgba(49, 120, 198, 0.6)",
-    gradient: "linear-gradient(180deg, #5fa6e6 0%, #1f5da3 100%)",
+    id: "tsx", label: "TSX", short: "TSX",
+    color: "#3178c6", dim: "rgba(49,120,198,0.6)",
+    gradient: "linear-gradient(180deg,#5fa6e6 0%,#1f5da3 100%)",
   },
   js: {
-    id: "js",
-    label: "JavaScript",
-    short: "JS",
-    color: "#f7df1e",
-    dim: "rgba(247, 223, 30, 0.6)",
-    gradient: "linear-gradient(180deg, #ffe93d 0%, #d8be1a 100%)",
+    id: "js", label: "JavaScript", short: "JS",
+    color: "#f7df1e", dim: "rgba(247,223,30,0.6)",
+    gradient: "linear-gradient(180deg,#ffe93d 0%,#d8be1a 100%)",
   },
   jsx: {
-    id: "jsx",
-    label: "JavaScript JSX",
-    short: "JSX",
-    color: "#f7df1e",
-    dim: "rgba(247, 223, 30, 0.6)",
-    gradient: "linear-gradient(180deg, #ffe93d 0%, #d8be1a 100%)",
+    id: "jsx", label: "JSX", short: "JSX",
+    color: "#f7df1e", dim: "rgba(247,223,30,0.6)",
+    gradient: "linear-gradient(180deg,#ffe93d 0%,#d8be1a 100%)",
   },
   json: {
-    id: "json",
-    label: "JSON",
-    short: "JSON",
-    color: "#a3a3a3",
-    dim: "rgba(163, 163, 163, 0.6)",
-    gradient: "linear-gradient(180deg, #c5c5c5 0%, #6f6f6f 100%)",
+    id: "json", label: "JSON", short: "JSON",
+    color: "#a3a3a3", dim: "rgba(163,163,163,0.6)",
+    gradient: "linear-gradient(180deg,#c5c5c5 0%,#6f6f6f 100%)",
   },
   md: {
-    id: "md",
-    label: "Markdown",
-    short: "MD",
-    color: "#6dd99e",
-    dim: "rgba(109, 217, 158, 0.6)",
-    gradient: "linear-gradient(180deg, #b8e3c9 0%, #4eb87f 100%)",
+    id: "md", label: "Markdown", short: "MD",
+    color: "#6dd99e", dim: "rgba(109,217,158,0.6)",
+    gradient: "linear-gradient(180deg,#b8e3c9 0%,#4eb87f 100%)",
   },
   svg: {
-    id: "svg",
-    label: "SVG",
-    short: "SVG",
-    color: "#ff9800",
-    dim: "rgba(255, 152, 0, 0.6)",
-    gradient: "linear-gradient(180deg, #ffb74d 0%, #e65100 100%)",
-  },
-  py: {
-    id: "py",
-    label: "Python",
-    short: "PY",
-    color: "#3776ab",
-    dim: "rgba(55, 118, 171, 0.6)",
-    gradient: "linear-gradient(180deg, #4b8bbe 0%, #ffe873 100%)",
+    id: "svg", label: "SVG", short: "SVG",
+    color: "#ff9800", dim: "rgba(255,152,0,0.6)",
+    gradient: "linear-gradient(180deg,#ffb74d 0%,#e65100 100%)",
   },
   unknown: {
-    id: "unknown",
-    label: "File",
-    short: "FILE",
-    color: "#b8e3c9",
-    dim: "rgba(184, 227, 201, 0.6)",
-    gradient: "linear-gradient(180deg, #b8e3c9 0%, #6dd99e 100%)",
+    id: "unknown", label: "File", short: "FILE",
+    color: "#b8e3c9", dim: "rgba(184,227,201,0.6)",
+    gradient: "linear-gradient(180deg,#b8e3c9 0%,#6dd99e 100%)",
   },
 };
 
@@ -202,7 +166,7 @@ function inferLang(path: string | null): Lang {
   if (!path) return LANGS.unknown;
   const lower = path.toLowerCase();
   if (lower.endsWith(".html") || lower.endsWith(".htm")) return LANGS.html;
-  if (lower.endsWith(".css") || lower.endsWith(".scss") || lower.endsWith(".less")) return LANGS.css;
+  if (lower.endsWith(".css") || lower.endsWith(".scss")) return LANGS.css;
   if (lower.endsWith(".tsx")) return LANGS.tsx;
   if (lower.endsWith(".ts")) return LANGS.ts;
   if (lower.endsWith(".jsx")) return LANGS.jsx;
@@ -210,17 +174,20 @@ function inferLang(path: string | null): Lang {
   if (lower.endsWith(".json")) return LANGS.json;
   if (lower.endsWith(".md") || lower.endsWith(".mdx")) return LANGS.md;
   if (lower.endsWith(".svg")) return LANGS.svg;
-  if (lower.endsWith(".py")) return LANGS.py;
   return LANGS.unknown;
 }
 
+/**
+ * Извлекает текущий записываемый файл из bolt-тегов.
+ * Ищет последний <boltAction type="file" filePath="..."> в стриме.
+ */
 function extractCurrentPath(stream: string): string | null {
   if (!stream) return null;
-  // walk the stream backwards, find the most recent "path":"…"
-  const regex = /"path"\s*:\s*"([^"]{1,200})"/g;
+  // Ищем последний filePath="..." в bolt-тегах
+  const boltRegex = /filePath="([^"]{1,300})"/g;
   let last: string | null = null;
   let m: RegExpExecArray | null;
-  while ((m = regex.exec(stream))) {
+  while ((m = boltRegex.exec(stream))) {
     last = m[1];
   }
   return last;
@@ -232,7 +199,8 @@ function shortenPath(p: string): string {
 }
 
 function LangBadge({ lang }: { lang: Lang }) {
-  const sizeClass = lang.short.length >= 4 ? "text-3xl sm:text-4xl" : "text-4xl sm:text-5xl";
+  const sizeClass =
+    lang.short.length >= 4 ? "text-3xl sm:text-4xl" : "text-4xl sm:text-5xl";
   return (
     <div
       className="lb-badge relative grid place-items-center rounded-3xl shadow-2xl shadow-black/70"
@@ -248,9 +216,7 @@ function LangBadge({ lang }: { lang: Lang }) {
           "font-mono font-extrabold text-white tracking-tight drop-shadow",
           sizeClass,
         )}
-        style={{
-          textShadow: "0 2px 18px rgba(0,0,0,0.45)",
-        }}
+        style={{ textShadow: "0 2px 18px rgba(0,0,0,0.45)" }}
       >
         {lang.short}
       </div>

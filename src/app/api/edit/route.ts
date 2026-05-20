@@ -1,14 +1,12 @@
 import { NextRequest } from "next/server";
-import { generateSiteStream } from "@/lib/generate";
-import { EDIT_PROMPT } from "@/lib/edit-prompt";
+import { auth } from "@/lib/auth";
+import { streamGeneration, artifactTextToResult } from "@/lib/generate";
 import { DEFAULT_MODEL } from "@/lib/examples";
 import type { GenerateResultFile } from "@/lib/types";
+import { quotaRemaining, userFromSession } from "@/lib/user-store";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-// Capped automatically by Vercel to the plan limit (60s on Hobby, 300s on
-// Pro). Without this, the default 10s timeout kills mid-stream and the
-// client surfaces "Load failed".
 export const maxDuration = 300;
 
 interface Body {
@@ -38,8 +36,24 @@ export async function POST(req: NextRequest) {
 
   if (!process.env.OPENROUTER_API_KEY) {
     return Response.json(
-      { error: "OPENROUTER_API_KEY is not configured on the server." },
+      { error: "OPENROUTER_API_KEY не настроен на сервере." },
       { status: 503 },
+    );
+  }
+
+  const session = await auth();
+  const user = await userFromSession(session);
+  if (!user) {
+    return Response.json(
+      { error: "Войдите в аккаунт.", code: "unauthenticated" },
+      { status: 401 },
+    );
+  }
+
+  if (quotaRemaining(user) <= 0) {
+    return Response.json(
+      { error: "Квота исчерпана. Обновите план на /pricing.", code: "quota_exceeded" },
+      { status: 402 },
     );
   }
 
@@ -49,39 +63,35 @@ export async function POST(req: NextRequest) {
   const stream = new ReadableStream({
     async start(controller) {
       function send(event: object) {
-        controller.enqueue(
-          encoder.encode(`data: ${JSON.stringify(event)}\n\n`),
-        );
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
       }
-      // Periodic heartbeat (SSE comment line) keeps upstream proxies from
-      // closing a quiet connection while OpenRouter TTFBs. Without this,
-      // slow first chunks surface as "Generation failed: Load failed".
-      function heartbeat() {
-        controller.enqueue(encoder.encode(`: hb\n\n`));
-      }
+
       let closed = false;
       const hb = setInterval(() => {
         if (!closed) {
-          try {
-            heartbeat();
-          } catch {
-            /* controller might be closed mid-flush */
-          }
+          try { controller.enqueue(encoder.encode(`: hb\n\n`)); } catch { /* ignore */ }
         }
       }, 10_000);
 
       try {
         send({ type: "start", model });
-        heartbeat();
-        const result = await generateSiteStream(
+
+        let fullText = "";
+
+        await streamGeneration({
           prompt,
           model,
-          body.priorFiles,
-          {
-            onChunk: (delta) => send({ type: "chunk", delta }),
+          mode: "edit",
+          priorFiles: body.priorFiles,
+          callbacks: {
+            onChunk: (delta, accumulated) => {
+              fullText = accumulated;
+              send({ type: "chunk", delta });
+            },
           },
-          { systemText: EDIT_PROMPT },
-        );
+        });
+
+        const result = artifactTextToResult(fullText, "Edited Site");
         send({ type: "done", result });
       } catch (err) {
         send({ type: "error", message: (err as Error).message });

@@ -1,8 +1,8 @@
 import { NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
-import { generateSiteStream, type ComplexityContext } from "@/lib/generate";
+import { streamGeneration, artifactTextToResult } from "@/lib/generate";
 import { DEFAULT_MODEL } from "@/lib/examples";
-import type { ComplexityAnalysis, GenerateResultFile } from "@/lib/types";
+import type { GenerateResultFile } from "@/lib/types";
 import {
   PLAN_LIMITS,
   incrementUsage,
@@ -18,37 +18,12 @@ import {
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-// Capped automatically by Vercel to the plan limit (60s on Hobby, 300s on
-// Pro / new-platform). Setting it explicitly stops slow OpenRouter TTFB
-// from killing the connection at the default 10s and surfacing as
-// "Generation failed: Load failed" on the client.
 export const maxDuration = 300;
 
 interface Body {
   prompt: string;
   model?: string;
   priorFiles?: GenerateResultFile[];
-  /**
-   * Optional output of the Quality Check classifier. When present, it's
-   * injected into the user message as a `<complexity>` block so the Site
-   * Architect sizes its build accordingly.
-   */
-  analysis?: ComplexityAnalysis;
-  /**
-   * Manual override (2–10) from a Silver/Gold user. Coerces the analysis
-   * score / stack to match. Ignored for free users (the route doesn't
-   * gate it here — the prompt-box does — but we still clamp and clean.).
-   */
-  complexityOverride?: number;
-  /**
-   * Project id the client owns. When provided, the server writes its
-   * progress to the project store under this id, so a reconnecting client
-   * can poll /api/projects/{id}/status and resume showing live progress
-   * even if the SSE connection died (closed tab, browser refresh, mobile
-   * sleep, …). When absent, the route still streams but no background
-   * record is kept — used for one-off generations like the Stream demo
-   * in builtin-examples.
-   */
   projectId?: string;
 }
 
@@ -67,10 +42,7 @@ export async function POST(req: NextRequest) {
 
   if (!process.env.OPENROUTER_API_KEY) {
     return Response.json(
-      {
-        error:
-          "OPENROUTER_API_KEY is not configured on the server. Add it to .env.local.",
-      },
+      { error: "OPENROUTER_API_KEY не настроен на сервере. Добавьте в .env.local." },
       { status: 503 },
     );
   }
@@ -79,7 +51,7 @@ export async function POST(req: NextRequest) {
   const user = await userFromSession(session);
   if (!user) {
     return Response.json(
-      { error: "Sign in to generate sites.", code: "unauthenticated" },
+      { error: "Войдите в аккаунт для генерации сайтов.", code: "unauthenticated" },
       { status: 401 },
     );
   }
@@ -88,7 +60,7 @@ export async function POST(req: NextRequest) {
     const limit = PLAN_LIMITS[user.plan];
     return Response.json(
       {
-        error: `You've used all ${limit} generations on your current plan. Upgrade at /pricing.`,
+        error: `Вы использовали все ${limit} генераций на вашем плане. Обновите план на /pricing.`,
         code: "quota_exceeded",
       },
       { status: 402 },
@@ -97,19 +69,9 @@ export async function POST(req: NextRequest) {
 
   const encoder = new TextEncoder();
   const model = body.model || DEFAULT_MODEL;
-
-  // Resolve the complexity context: start from the analyzer's result, then
-  // let a Silver/Gold-tier manual override coerce score + stack. Free users
-  // can still send `analysis` but they don't get the override slider in the
-  // UI, so `complexityOverride` is normally absent for them.
-  const complexity = resolveComplexity(body);
-
-  // ─── Background project record ────────────────────────────────────
-  // Create a record in the server project store so the client can resume
-  // via /api/projects/{id}/status if the SSE connection drops. This is
-  // what makes "close the tab, come back, the site is still being built"
-  // work — see lib/project-store.ts for the full rationale.
   const projectId = body.projectId;
+
+  // Создаём запись в project-store для восстановления после обрыва соединения
   if (projectId) {
     try {
       await createProject({
@@ -117,19 +79,14 @@ export async function POST(req: NextRequest) {
         userId: user.id,
         prompt,
         model,
-        analysis: body.analysis ?? null,
-        complexityOverride: body.complexityOverride ?? null,
         initialStatus: "generating",
       });
     } catch (err) {
-      // Storage failures are non-fatal — the SSE stream still works,
-      // we just can't recover after a disconnect. Log it and keep going.
       console.warn("[generate] failed to create project record:", err);
     }
   }
 
-  // Throttled flush state for the project store. Without this we'd hit the
-  // disk (or Redis) on every chunk — 100s of writes per generation.
+  // Throttled flush partial text to project store
   let partialBuffer = "";
   let lastFlushAt = Date.now();
   const FLUSH_INTERVAL_MS = 1500;
@@ -142,78 +99,74 @@ export async function POST(req: NextRequest) {
     try {
       await patchProject(projectId, { partial: partialBuffer });
     } catch {
-      /* swallowed — partial flush is best-effort */
+      /* best-effort */
     }
   }
 
   const stream = new ReadableStream({
     async start(controller) {
       function send(event: object) {
-        controller.enqueue(
-          encoder.encode(`data: ${JSON.stringify(event)}\n\n`),
-        );
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
       }
 
-      try {
-        send({
-          type: "start",
-          model,
-          projectId,
-          complexity: complexity
-            ? {
-                score: complexity.score,
-                stack: complexity.stack,
-                tier: complexity.tier,
-                userOverride: complexity.userOverride ?? false,
-              }
-            : undefined,
-        });
+      // Heartbeat каждые 10с чтобы прокси не закрыл тихое соединение
+      let closed = false;
+      const hb = setInterval(() => {
+        if (!closed) {
+          try {
+            controller.enqueue(encoder.encode(`: hb\n\n`));
+          } catch { /* ignore */ }
+        }
+      }, 10_000);
 
-        const result = await generateSiteStream(
+      try {
+        send({ type: "start", model, projectId });
+
+        let fullText = "";
+
+        const result = await streamGeneration({
           prompt,
           model,
-          body.priorFiles,
-          {
-            onChunk: (delta) => {
+          mode: "generate",
+          priorFiles: body.priorFiles,
+          callbacks: {
+            onChunk: (delta, accumulated) => {
+              fullText = accumulated;
+              partialBuffer = accumulated;
+              // Стримим сырой текст (с тегами) — клиент парсит их сам
               send({ type: "chunk", delta });
-              partialBuffer += delta;
-              // Fire-and-forget flush — we don't await so the chunk
-              // dispatch stays tight. Lost flushes are harmless because
-              // the next chunk's flush will catch up.
               void flushPartial();
             },
           },
-          undefined,
-          complexity,
-        );
+        });
 
-        // Only count successful generations against the user's quota.
+        // Парсим артефакт в GenerateResult
+        const generateResult = artifactTextToResult(fullText, prompt.slice(0, 60));
+
+        // Считаем использование только при успехе
         await incrementUsage(user.id);
 
-        // Write the final result to the project store BEFORE pushing the
-        // SSE done event. If the client is still connected they get the
-        // result over SSE; if they're not, the next status poll picks it
-        // up from the store.
+        // Сохраняем в project-store до отправки SSE done
         if (projectId) {
           try {
-            await completeProject(projectId, result);
+            await completeProject(projectId, generateResult);
           } catch (err) {
             console.warn("[generate] failed to mark project done:", err);
           }
         }
 
-        send({ type: "done", result });
+        send({ type: "done", result: generateResult });
       } catch (err) {
         const message = (err as Error).message;
         if (projectId) {
           try {
             await failProject(projectId, message);
-          } catch {
-            /* swallowed */
-          }
+          } catch { /* ignore */ }
         }
         send({ type: "error", message });
       } finally {
+        closed = true;
+        clearInterval(hb);
         controller.close();
       }
     },
@@ -227,50 +180,4 @@ export async function POST(req: NextRequest) {
       "X-Accel-Buffering": "no",
     },
   });
-}
-
-/**
- * Merge analyzer output + optional user override into a single
- * {@link ComplexityContext} for the Site Architect. Returns `undefined`
- * when neither was provided (callers fall back to the legacy "no
- * complexity" path).
- */
-function resolveComplexity(body: Body): ComplexityContext | undefined {
-  const analysis = body.analysis;
-  const override = body.complexityOverride;
-
-  if (!analysis && (override == null || !Number.isFinite(override))) {
-    return undefined;
-  }
-
-  let score = analysis?.score ?? 5;
-  let stack = analysis?.stack ?? "html";
-  let tier = analysis?.tier;
-  let userOverride = false;
-  if (override != null && Number.isFinite(override)) {
-    score = Math.max(2, Math.min(10, Math.round(override)));
-    // Canonical contract: only "html" (≤4) or "react-ts" (≥5). The legacy
-    // values "js-modules" / "typescript" used to leak in here from the
-    // pre-PR-11 codebase and confused the Site Architect — it would get
-    // told "stack=typescript" but the runtime expects React+TS files.
-    stack = score <= 4 ? "html" : "react-ts";
-    // Drop stale tier label when the user override changes the score band.
-    if (
-      analysis &&
-      analysis.score !== score &&
-      !analysis.userOverride
-    ) {
-      tier = undefined;
-    }
-    userOverride = true;
-  }
-
-  return {
-    score,
-    stack,
-    tier,
-    recommendedPages: analysis?.recommendedPages,
-    reasoning: analysis?.reasoning,
-    userOverride,
-  };
 }
